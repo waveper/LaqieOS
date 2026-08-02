@@ -1,0 +1,30 @@
+-- Laqie OS
+
+an monolithic kernel that only target i386 architecture
+Currently compiled kernel binary is approximately 46 Kilobytes
+
+build with LLVM toolchain and NASM as an assembler
+
+-- Language import
+Since there are only C and Assembly programming language, Other language must be consent by contributor via Email or "Pull Request" and
+must have a good reason to include
+Here some example guideline form an include: "
+[Language] (like Rust, C++, or Zig)
+
+[Why you include it]
+
+[Reson to include]
+
+[How it will effect the codebase]
+
+[do you acknowledge the README]
+"
+Also you need to make sure the language you include have support for the current architecture
+
+-- Coding Style
+4 "Use", 1 "Keep". Style rules:
+  - Use 2-space indentation with K&R style for C functions
+  - Use local helper libraries in `stdlib/`
+  - Use `PascalCase` for general C code
+  - Use `snake_case` or descriptive lowercase labels in assembly
+  - Keep file names lowercase and grouped by subsystem

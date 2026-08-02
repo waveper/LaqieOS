@@ -1,0 +1,17 @@
+TODO:
+  Implememt General OS and Driver stuff
+    - HDD (IDE)
+    - FAT 32
+    - etc
+  Graphic GUI
+    - Switch the 800 × 600 16-bit color
+    - Draw mouse pointer
+    - Render font on screen
+    - Taskbar frontend
+    - Taskbar backend
+    - Working task switching
+    - Windowing system
+    - Render program local graphic memory
+    - Run games
+    - Shell
+    - Shell's program stdout redirection
