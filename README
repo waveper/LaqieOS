@@ -1,9 +1,7 @@
 -- Laqie OS
 
-an monolithic kernel that only target i386 architecture
-Currently compiled kernel binary is approximately 46 Kilobytes
-
-build with LLVM toolchain and NASM as an assembler
+- an monolithic kernel that only target i386 range instruction
+- build with LLVM toolchain and NASM as an assembler
 
 -- Coding Style
 4 "Use", 1 "Keep". Style rules:
@@ -12,3 +10,4 @@ build with LLVM toolchain and NASM as an assembler
   - Use `PascalCase` for general C code
   - Use `snake_case` or descriptive lowercase labels in assembly
   - Keep file names lowercase and grouped by subsystem
+

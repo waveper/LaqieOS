@@ -115,7 +115,4 @@ void KMain(uint32_t VIDEO_ADRESS) {
 
   while (IsTaskActive(ShellPID)) asm volatile("sti; hlt");
   */ // INFO: kernel-space shell are unused, it could be removed in the future
-
-  SerialPrint("Shell exited, entering idle loop\r\n");
-  while (1) asm volatile("sti; hlt");
 }

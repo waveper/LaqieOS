@@ -99,39 +99,11 @@ void KShellCommands(const char *string) {
     SerialPrint("Available RAM: ");
     SerialPrintNum((MAX_ADDR - UsedPages) / 1024);
     SerialPrint(" KB\r\n");
-  } else if (strcmp(argv[0], "memvisual") == 0) {
-    SerialPrint("Memory Mapping Visual\r\n");
-    SerialPrint("Undefined - 0 to 0x0000FFFF\r\n");
-    SerialPrint("Kernel Binary - 0x00010000 to 0x");
-    SerialPrintHex((int)&KernelEnd);
-    SerialPrint("\r\nKernel Stack - 0x");
-    SerialPrintHex((int)&KernelEnd + 1);
-    SerialPrint(" to 0x");
-    SerialPrintHex(KERNEL_STACK_TOP);
-    SerialPrint("\r\n");
-  } else if (strcmp(argv[0], "exit") == 0) {
-    TaskKillName("shell");
   } else if (strcmp(argv[0], "ps") == 0) {
     ListTask();
   } else if (strcmp(argv[0], "shutdown") == 0) {
     APMShutdown();
-  } else if (strcmp(argv[0], "exec") == 0) {
-    if (argc < 2) {
-      SerialPrint("Usage: exec <path>\r\n");
-      return;
-    }
-    execute(argv[1]);
   } else {
     SerialPrint("Unknown command\r\n");
-  }
-}
-
-void KShell(void) {
-  char shellbuffer[64];
-  while (1) {
-    memset(shellbuffer, 0, sizeof(shellbuffer));
-    SerialPrint("KShell: ");
-    SerialReadMax(shellbuffer, 64);
-    KShellCommands(shellbuffer);
   }
 }

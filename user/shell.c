@@ -11,11 +11,8 @@ void SerialReadMax(char * buffer, unsigned int size) {
   unsigned int i = 0;
   char charbuffer;
 
-  if (size == 0) {
-    return;
-  }
+  if (size == 0) return;
 
-  // -1 to make space for null terminator
   while (i < size - 1) {
     charbuffer = getchar();
     if (charbuffer == 0x0D) {
@@ -64,8 +61,6 @@ int ParseArguments(const char *buffer, char argv[MARGS][64]) {
 
   return argc;
 }
-
-// TODO: user-space shell, execute an binary program, simple
 
 int main(void) {
   char shellbuffer[64];

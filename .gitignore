@@ -1,0 +1,11 @@
+obj
+LaqieOS.img
+serial.log
+kernel.bin
+kernel/kernel.elf
+kernel/driver/apm/apm16.bin
+boot/*.bin
+stdlib/*.o
+user/*.o
+user/*.elf
+user/*.bin
