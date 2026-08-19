@@ -93,11 +93,11 @@ void KShellCommands(const char *string) {
     SerialPrintNum(MAX_ADDR / 1024);
     SerialPrint(" KB\r\n");
     SerialPrint("Page Usage: ");
-    int UsedPages = CalculatePageUsage();
-    SerialPrintNum(UsedPages / 1024);
+    uint32_t UsedKB = (MAX_ADDR / 1024) - ((CountAvailablePage() * PAGE_SIZE) / 1024);
+    SerialPrintNum(UsedKB);
     SerialPrint(" KB\r\n");
     SerialPrint("Available RAM: ");
-    SerialPrintNum((MAX_ADDR - UsedPages) / 1024);
+    SerialPrintNum((CountAvailablePage() * PAGE_SIZE) / 1024);
     SerialPrint(" KB\r\n");
   } else if (strcmp(argv[0], "ps") == 0) {
     ListTask();

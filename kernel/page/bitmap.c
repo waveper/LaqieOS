@@ -1,198 +1,268 @@
+#include <stdint.h>
+#include <stdbool.h>
 #include "bitmap.h"
-#include "../../stdlib/stdmem.h"
 #include "../layout.h"
 
-static uint8_t   PageBitmap[TOTAL_BITMAP / 8] = {0};
-extern uint8_t KernelEnd;
-
 extern int MAX_ADDR;
-static size_t NextFreePageHint = 0;
+extern uint8_t KernelEnd;
+#define TOTAL_PAGE_ENTRIES 262144
 
+uint32_t HowManyPagesCouldFitInRAM(void);
+
+// Fixed pointer
+static uint32_t* EntriesBitmap = (uint32_t*)0x00200000;
+
+// Physical memory starts at 1MB
+#define MEMORY_BASE 0x100000
+
+// Bit shifts
+#define SHIFT_STATUS        0
+#define SHIFT_CHILD_COUNT   3
+#define SHIFT_RESERVED      19
+
+// Bit masks
+#define MASK_STATUS         0x7       // 3 bits
+#define MASK_CHILD_COUNT    0xFFFF    // 16 bits
+#define MASK_RESERVED       0x1FFF    // 13 bits
+
+// Status Flag Bits
+#define FLAG_AVAILABLE      (1 << 0)  // Bit 0: 0=unusable, 1=available
+#define FLAG_ALLOCATED      (1 << 1)  // Bit 1: 0=free, 1=allocated
+#define FLAG_CHILD          (1 << 2)  // Bit 2: 0=parent, 1=child
+
+// Retrieve status flags (3 bits)
+static uint8_t metadata_get_status(uint32_t entry) {
+  return (entry >> SHIFT_STATUS) & MASK_STATUS;
+}
+
+// Retrieve child page count (16 bits)
+static uint16_t metadata_get_child_count(uint32_t entry) {
+  return (entry >> SHIFT_CHILD_COUNT) & MASK_CHILD_COUNT;
+}
+
+// Check if page is usable
+static bool metadata_is_available(uint32_t entry) {
+  return (entry & FLAG_AVAILABLE) != 0;
+}
+
+static bool metadata_is_allocated(uint32_t entry) {
+  return (entry & FLAG_ALLOCATED) != 0;
+}
+
+static uint8_t metadata_create_status(bool available, bool allocated, bool child) {
+  return available | (allocated << 1) | (child << 2);
+}
+
+static uint32_t create_metadata_entry(uint8_t status, uint16_t child_count) {
+  uint32_t entry = 0;
+  entry |= ((uint32_t)(status & MASK_STATUS) << SHIFT_STATUS);
+  entry |= ((uint32_t)(child_count & MASK_CHILD_COUNT) << SHIFT_CHILD_COUNT);
+  return entry;
+}
+
+// Set a specific page entry in memory
+static void set_page_metadata(uint32_t page_index, uint8_t status, uint16_t child_count) {
+  if (page_index < TOTAL_PAGE_ENTRIES) {
+    EntriesBitmap[page_index] = create_metadata_entry(status, child_count);
+  }
+}
+
+static uint32_t PageAlignUp(uint32_t value) {
+  return (value + PAGE_SIZE - 1) & ~(uint32_t)(PAGE_SIZE - 1);
+}
+
+static uint32_t PageIndexToAddress(uint32_t address) {
+  return (uintptr_t)(4096 * address);
+}
+
+// Convert a page index to its physical address
+static uintptr_t PageIndexToAddr(uint32_t page_index) {
+  return (uintptr_t)MEMORY_BASE + PageIndexToAddress(page_index);
+}
+
+// Convert a physical address to its page index
+static uint32_t AddrToPageIndex(uintptr_t address) {
+  return (uint32_t)((address - MEMORY_BASE) / PAGE_SIZE);
+}
+
+// First page usable for allocation (page aligned end of kernel image)
 static uintptr_t MemoryStart(void) {
   uintptr_t base = (uintptr_t)&KernelEnd;
-  uintptr_t start = (base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  uintptr_t start = (base + PAGE_SIZE - 1) & ~(uintptr_t)(PAGE_SIZE - 1);
   if (start < USER_SPACE_END) {
     start = USER_SPACE_END;
   }
   return start;
 }
 
-static size_t AvailablePageCount(void) {
-  uintptr_t start = MemoryStart();
-  uintptr_t limit = (uintptr_t)(0x100000 + MAX_ADDR);
-
-  if (MAX_ADDR <= 0 || start >= limit) {
-    return 0;
-  }
-
-  size_t page_count = (limit - start) / PAGE_SIZE;
-  if (page_count > TOTAL_BITMAP) {
-    page_count = TOTAL_BITMAP;
-  }
-  return page_count;
+// Check if a page is both usable and not allocated
+static bool PageIsFree(uint32_t page_index) {
+  uint32_t entry = EntriesBitmap[page_index];
+  uint8_t status = metadata_get_status(entry);
+  return metadata_is_available(entry) && !(status & FLAG_ALLOCATED);
 }
 
-// Bitmap based Page allocator
+static uint32_t NextFreePageHint = 0;
+static bool BitmapInitialized = false;
 
-int GetFreePage(void) {
-  size_t page_count = AvailablePageCount();
-  if (page_count == 0) {
+// Mark every page as reserved, then open the usable region above the kernel,
+// keeping the metadata region itself out of reach.
+static void InitBitmap(void) {
+  uint32_t total = HowManyPagesCouldFitInRAM();
+  uint8_t reserved = metadata_create_status(false, false, false);
+
+  for (uint32_t i = 0; i < total; ++i) {
+    set_page_metadata(i, reserved, 0);
+  }
+
+  uint32_t start_index = AddrToPageIndex(MemoryStart());
+  uint8_t free_status = metadata_create_status(true, false, false);
+  for (uint32_t i = start_index; i < total; ++i) {
+    set_page_metadata(i, free_status, 0);
+  }
+
+  uint32_t metadata_start = AddrToPageIndex(0x00200000);
+  uint32_t metadata_end = AddrToPageIndex(0x00300000 - 1);
+  for (uint32_t i = metadata_start; i <= metadata_end && i < total; ++i) {
+    set_page_metadata(i, reserved, 0);
+  }
+
+  NextFreePageHint = start_index;
+}
+
+static void EnsureInitialized(void) {
+  if (!BitmapInitialized) {
+    InitBitmap();
+    BitmapInitialized = true;
+  }
+}
+
+// Find a run of `count` consecutive free pages
+static int FindFreeRun(uint32_t count) {
+  uint32_t total = HowManyPagesCouldFitInRAM();
+  if (count == 0 || count > total) {
     return -1;
   }
 
-  size_t start = NextFreePageHint;
-  if (start >= page_count) {
+  uint32_t start = NextFreePageHint;
+  if (start >= total) {
     start = 0;
   }
 
-  for (size_t pass = 0; pass < 2; ++pass) {
-    size_t begin = pass == 0 ? start : 0;
-    size_t end = pass == 0 ? page_count : start;
-    for (size_t i = begin; i < end; ++i) {
-      size_t ByteIdx = i / 8;
-      size_t BitIdx = i % 8;
-      uint8_t Mask = (uint8_t)(1u << BitIdx);
-      if (!(PageBitmap[ByteIdx] & Mask)) {
-        PageBitmap[ByteIdx] |= Mask;
-        NextFreePageHint = i + 1;
-        return (int)i;
-      }
-    }
-  }
-  return -1;
-}
-
-int GetFreePages(size_t Count) {
-  if (Count == 0) {
-    return -1;
-  }
-
-  size_t page_count = AvailablePageCount();
-  if (Count > page_count) {
-    return -1;
-  }
-
-  size_t start = NextFreePageHint;
-  if (start >= page_count) {
-    start = 0;
-  }
-
-  for (size_t pass = 0; pass < 2; ++pass) {
-    size_t begin = pass == 0 ? start : 0;
-    size_t end = pass == 0 ? (page_count - Count + 1) : (start > (page_count - Count + 1) ? (page_count - Count + 1) : start);
-    for (size_t start_idx = begin; start_idx < end; ++start_idx) {
-      size_t matched = 0;
-      while (matched < Count) {
-        size_t page_idx = start_idx + matched;
-        size_t byte_idx = page_idx / 8;
-        size_t bit_idx = page_idx % 8;
-        if (PageBitmap[byte_idx] & (1u << bit_idx)) {
+  for (uint32_t pass = 0; pass < 2; ++pass) {
+    uint32_t begin = (pass == 0) ? start : 0;
+    uint32_t end = (pass == 0) ? (total - count + 1)
+                               : (start > (total - count + 1) ? (total - count + 1) : start);
+    for (uint32_t i = begin; i < end; ++i) {
+      uint32_t matched = 0;
+      while (matched < count) {
+        if (!PageIsFree(i + matched)) {
           break;
         }
         ++matched;
       }
 
-      if (matched == Count) {
-        for (size_t i = 0; i < Count; ++i) {
-          size_t page_idx = start_idx + i;
-          size_t byte_idx = page_idx / 8;
-          size_t bit_idx = page_idx % 8;
-          PageBitmap[byte_idx] |= (uint8_t)(1u << bit_idx);
-        }
-        NextFreePageHint = start_idx + Count;
-        return (int)start_idx;
+      if (matched == count) {
+        NextFreePageHint = i + count;
+        return (int)i;
       }
 
-      start_idx += matched;
+      i += matched;
     }
   }
 
   return -1;
 }
 
-void FreePage(void *Page) {
-  uintptr_t Addr = (uintptr_t)Page;
-  uintptr_t start = MemoryStart();
-  size_t page_count = AvailablePageCount();
-  uintptr_t limit = start + (page_count * PAGE_SIZE);
+// Mark the first page as parent and the rest as children
+static void MarkRunAllocated(uint32_t start, uint32_t count) {
+  uint8_t parent_status = metadata_create_status(true, true, false);
+  uint8_t child_status = metadata_create_status(true, true, true);
 
-  if (Addr < start || Addr >= limit) {
-    return;
-  }
-
-  size_t PageIdx = (Addr - start) / PAGE_SIZE;
-  size_t ByteIdx = PageIdx / 8;
-  size_t BitIdx = PageIdx % 8;
-  PageBitmap[ByteIdx] &= ~(1 << BitIdx);
-}
-
-void FreePages(void *Base, size_t Count) {
-  if (!Base || Count == 0) {
-    return;
-  }
-
-  uintptr_t addr = (uintptr_t)Base;
-  if ((addr % PAGE_SIZE) != 0) {
-    return;
-  }
-
-  uintptr_t start = MemoryStart();
-  size_t page_count = AvailablePageCount();
-  uintptr_t limit = start + (page_count * PAGE_SIZE);
-  if (addr < start || addr >= limit) {
-    return;
-  }
-
-  size_t start_idx = (addr - start) / PAGE_SIZE;
-  for (size_t i = 0; i < Count; ++i) {
-    size_t page_idx = start_idx + i;
-    if (page_idx >= page_count) {
-      break;
-    }
-    size_t byte_idx = page_idx / 8;
-    size_t bit_idx = page_idx % 8;
-    PageBitmap[byte_idx] &= (uint8_t)~(1u << bit_idx);
-  }
-
-  if (start_idx < NextFreePageHint) {
-    NextFreePageHint = start_idx;
+  set_page_metadata(start, parent_status, (uint16_t)(count - 1));
+  for (uint32_t i = 1; i < count; ++i) {
+    set_page_metadata(start + i, child_status, 0);
   }
 }
 
-void *AllocatePage(void) {
-  int PageIdx = GetFreePage();
-  if (PageIdx == -1) return NULL;
-  void *Page = (void*)(MemoryStart() + (PageIdx * PAGE_SIZE));
-  memset(Page, 0, PAGE_SIZE);
-  return Page;
+static void MarkRunFree(uint32_t start, uint32_t count) {
+  uint32_t total = HowManyPagesCouldFitInRAM();
+  uint8_t free_status = metadata_create_status(true, false, false);
+
+  for (uint32_t i = 0; i < count && (start + i) < total; ++i) {
+    set_page_metadata(start + i, free_status, 0);
+  }
+
+  if (start < NextFreePageHint) {
+    NextFreePageHint = start;
+  }
 }
 
-void *AllocatePages(size_t Count) {
-  int PageIdx = GetFreePages(Count);
-  if (PageIdx == -1) {
+void* KAlloc(uint32_t bytes) {
+  EnsureInitialized();
+  if (bytes == 0) {
     return NULL;
   }
 
-  void *Base = (void *)(MemoryStart() + ((size_t)PageIdx * PAGE_SIZE));
-  memset(Base, 0, (uint32_t)(Count * PAGE_SIZE));
-  return Base;
+  uint32_t count = PageAlignUp(bytes) / PAGE_SIZE;
+  int start_index = FindFreeRun(count);
+  if (start_index < 0) {
+    return NULL;
+  }
+
+  MarkRunAllocated((uint32_t)start_index, count);
+  return (void*)PageIndexToAddr((uint32_t)start_index);
 }
 
-int CalculatePageUsage(void) {
-  int ByteCount = 0;
-  size_t page_count = AvailablePageCount();
-  size_t byte_count = (page_count + 7) / 8;
+int KFree(void *address) {
+  EnsureInitialized();
+  if (!address) {
+    return -1;
+  }
 
-  for (size_t i = 0; i < byte_count; ++i) {
-    uint8_t value = PageBitmap[i];
-    if (i == byte_count - 1 && (page_count % 8) != 0) {
-      value &= (uint8_t)((1u << (page_count % 8)) - 1u);
-    }
+  uintptr_t addr = (uintptr_t)address;
+  if (addr < MEMORY_BASE || (addr % PAGE_SIZE) != 0) {
+    return -1;
+  }
 
-    while (value) {
-      ByteCount += PAGE_SIZE;
-      value &= (uint8_t)(value - 1);
+  uint32_t index = AddrToPageIndex(addr);
+  if (index >= HowManyPagesCouldFitInRAM()) {
+    return -1;
+  }
+
+  uint32_t entry = EntriesBitmap[index];
+  if (!metadata_is_allocated(entry)) {
+    return -1;
+  }
+
+  uint8_t status = metadata_get_status(entry);
+  if (status & FLAG_CHILD) {
+    return -1;
+  }
+
+  uint32_t count = (uint32_t)metadata_get_child_count(entry) + 1;
+  MarkRunFree(index, count);
+  return 0;
+}
+
+// Like, how much usable RAM left
+uint32_t CountAvailablePage(void) {
+  EnsureInitialized();
+  uint32_t total = HowManyPagesCouldFitInRAM();
+  uint32_t count = 0;
+
+  for (uint32_t i = 0; i < total; ++i) {
+    if (PageIsFree(i)) {
+      ++count;
     }
   }
-  return ByteCount;
+
+  return count;
+}
+
+uint32_t HowManyPagesCouldFitInRAM(void) {
+  if (MAX_ADDR <= 0) return 0;
+  uint32_t count = MAX_ADDR / PAGE_SIZE;
+  if (count > TOTAL_PAGE_ENTRIES) count = TOTAL_PAGE_ENTRIES;
+  return count;
 }

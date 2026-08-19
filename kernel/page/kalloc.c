@@ -4,8 +4,7 @@
 void *kalloc(size_t Size) {
   if (Size == 0) return NULL;
   size_t TotalSize = Size + sizeof(BlockHeader);
-  size_t PagesNeeded = (TotalSize + PAGE_SIZE - 1) / PAGE_SIZE;
-  void *Base = AllocatePages(PagesNeeded);
+  void *Base = KAlloc((uint32_t)TotalSize);
   if (!Base) {
     Panic("Cannot allocate memory, Ran out of Memory");
   }
@@ -21,8 +20,5 @@ void kfree(void *Base) {
     Panic("Cannot free non-existense allocated memory");
   }
   BlockHeader *Header = (BlockHeader *)((char *)Base - sizeof(BlockHeader));
-  size_t TotalSize = Header->Size;
-  size_t PagesUsed = (TotalSize + PAGE_SIZE - 1) / PAGE_SIZE;
-  void *StartPage = (void *)Header;
-  FreePages(StartPage, PagesUsed);
+  KFree((void *)Header);
 }

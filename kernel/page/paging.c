@@ -56,7 +56,7 @@ static int EnsurePrivatePageTable(AddressSpace *space, uint32_t dir_index) {
   if (!space || dir_index >= PAGE_ENTRIES) return -1;
   if (space->owned_tables[dir_index]) return 0;
 
-  uint32_t *table = AllocatePage();
+  uint32_t *table = KAlloc(PAGE_SIZE);
   if (!table) return -1;
 
   if (space->directory[dir_index] & PAGE_PRESENT) {
@@ -94,7 +94,7 @@ static void FreeUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
     uint32_t *table = PageTableFromEntry(space->directory[dir_index]);
     uint32_t entry = table[table_index];
     if ((entry & (PAGE_PRESENT | PAGE_USER)) == (PAGE_PRESENT | PAGE_USER)) {
-      FreePage((void *)(entry & PAGE_ADDR));
+      KFree((void *)(entry & PAGE_ADDR));
       table[table_index] = 0;
     }
   }
@@ -110,7 +110,7 @@ static void IdentityMapRange(AddressSpace *space, uint32_t start,
     uint32_t *table;
 
     if (!(space->directory[dir_index] & PAGE_PRESENT)) {
-      table = AllocatePage();
+      table = KAlloc(PAGE_SIZE);
       if (!table) Panic("Cannot allocate kernel page table");
       memset(table, 0, PAGE_SIZE);
       space->directory[dir_index] =
@@ -128,7 +128,7 @@ void PagingInit(void) {
   uint32_t map_size = (uint32_t)(0x100000 + MAX_ADDR);
 
   memset(&KernelSpace, 0, sizeof(KernelSpace));
-  KernelSpace.directory = AllocatePage();
+  KernelSpace.directory = KAlloc(PAGE_SIZE);
   if (!KernelSpace.directory) Panic("Cannot allocate kernel page directory");
   memset(KernelSpace.directory, 0, PAGE_SIZE);
 
@@ -147,7 +147,7 @@ AddressSpace *PagingCreateUserAddressSpace(void) {
   if (!space) return NULL;
   memset(space, 0, sizeof(AddressSpace));
 
-  space->directory = AllocatePage();
+  space->directory = KAlloc(PAGE_SIZE);
   if (!space->directory) {
     kfree(space);
     return NULL;
@@ -166,11 +166,11 @@ void PagingDestroyAddressSpace(AddressSpace *space) {
 
   for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) {
     if (space->owned_tables[i] && (space->directory[i] & PAGE_PRESENT)) {
-      FreePage(PageTableFromEntry(space->directory[i]));
+      KFree(PageTableFromEntry(space->directory[i]));
     }
   }
 
-  FreePage(space->directory);
+  KFree(space->directory);
   kfree(space);
 }
 
@@ -181,14 +181,15 @@ int PagingMapUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
   if (!space || space == &KernelSpace || end < start) return -1;
 
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
-    void *page = AllocatePage();
+    void *page = KAlloc(PAGE_SIZE);
     if (!page) {
       FreeUserRange(space, start, addr - start);
       return -1;
     }
+    memset(page, 0, PAGE_SIZE);
 
     if (MapPage(space, addr, (uint32_t)page, PAGE_RW | PAGE_USER) != 0) {
-      FreePage(page);
+      KFree(page);
       FreeUserRange(space, start, addr - start);
       return -1;
     }
@@ -209,7 +210,7 @@ int PagingMapKernelRange(uint32_t start, uint32_t size) {
     uint32_t *table;
 
     if (!(KernelSpace.directory[dir_index] & PAGE_PRESENT)) {
-      table = AllocatePage();
+      table = KAlloc(PAGE_SIZE);
       if (!table) return -1;
       memset(table, 0, PAGE_SIZE);
       KernelSpace.directory[dir_index] =

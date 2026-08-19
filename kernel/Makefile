@@ -5,7 +5,7 @@ LD = ld.lld
 OBJDIR = ../obj
 STDLIB = ../stdlib
 
-CFLAGS = --target=i386-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
+CFLAGS = --target=i486-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
 LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
 OBJS = $(OBJDIR)/entry.o $(OBJDIR)/interrupts.o $(OBJDIR)/main.o $(OBJDIR)/serial.o $(OBJDIR)/idt.o $(OBJDIR)/shell.o $(OBJDIR)/gdt.o \
@@ -66,12 +66,6 @@ $(OBJDIR)/syscall.o: syscall.c
 
 $(OBJDIR)/gui-main.o: gui/main.c
 	$(CC) $(CFLAGS) -c gui/main.c -o $@
-
-$(OBJDIR)/gui-font.o: gui/font/font.c
-	$(CC) $(CFLAGS) -c gui/font/font.c -o $@
-
-$(OBJDIR)/gui-font-render.o: gui/font/render.c
-	$(CC) $(CFLAGS) -c gui/font/render.c -o $@
 
 $(OBJDIR)/floppy_asm.o: driver/floppy/floppy.asm
 	$(AS) -f elf32 driver/floppy/floppy.asm -o $@

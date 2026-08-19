@@ -1,41 +1,42 @@
-#include <stdint.h>
-#include <stdbool.h>
+#include "sched.h"
+#include "../../include/serial/serial.h"
 #include "../../stdlib/stdmem.h"
+#include "../../stdlib/string.h"
+#include "../gui/main.h"
+#include "../layout.h"
 #include "../page/kalloc.h"
 #include "../page/paging.h"
-#include "../layout.h"
-#include "../gui/main.h"
-#include "../../stdlib/string.h"
-#include "../../include/serial/serial.h"
-#include "sched.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #define KERNEL_CODE_SELECTOR 0x08
 #define KERNEL_DATA_SELECTOR 0x10
-#define USER_CODE_SELECTOR   0x1B
-#define USER_DATA_SELECTOR   0x23
+#define USER_CODE_SELECTOR 0x1B
+#define USER_DATA_SELECTOR 0x23
 
 extern void TSSSetKernelStack(uint32_t esp0);
 
-typedef struct Task
-{
+typedef struct Task {
   uint8_t stack[8192];
   InterruptFrame *frame;
-  void * start;
-  void * owned_allocation;
-  void * user_stack_allocation;
+  void *start;
+  void *owned_allocation;
+  void *user_stack_allocation;
   AddressSpace *address_space;
   int tick;
   int pid;
-  struct Task * next;
+  struct Task *next;
   bool running;
-  char * name;
+  char *name;
   int ring0;
 } Task;
 
-Task RootTask,*ActiveTask;
+Task RootTask, *ActiveTask;
 static Task *TaskTail = NULL;
 
-#define IterateSchedule(_) int _=0; for (Task * current = &RootTask; current != NULL; current = current->next,++_)
+#define IterateSchedule(_)                                                     \
+  int _ = 0;                                                                   \
+  for (Task *current = &RootTask; current != NULL; current = current->next, ++_)
 
 /*
  * Duplicates a task name into heap memory owned by the scheduler so task
@@ -48,7 +49,8 @@ static char *TaskNameDup(const char *name) {
   }
 
   char *copy = kalloc(len + 1);
-  if (!copy) return NULL;
+  if (!copy)
+    return NULL;
 
   for (uint32_t i = 0; i <= len; ++i) {
     copy[i] = name[i];
@@ -58,14 +60,16 @@ static char *TaskNameDup(const char *name) {
 }
 
 static void DestroyTask(Task *task) {
-  if (!task || task == &RootTask) return;
+  if (!task || task == &RootTask)
+    return;
   if (task->owned_allocation) {
     kfree(task->owned_allocation);
   }
   if (task->user_stack_allocation) {
     kfree(task->user_stack_allocation);
   }
-  if (task->address_space && task->address_space != PagingKernelAddressSpace()) {
+  if (task->address_space &&
+      task->address_space != PagingKernelAddressSpace()) {
     PagingDestroyAddressSpace(task->address_space);
   }
   if (task->name) {
@@ -78,23 +82,29 @@ static uint32_t TaskKernelStackTop(Task *task) {
   return (uint32_t)&task->stack[sizeof(task->stack)];
 }
 
-static bool RangeContains(uintptr_t start, uintptr_t limit, uintptr_t addr, uint32_t size) {
-  if (addr < start || addr >= limit) return false;
-  if (size == 0) return true;
+static bool RangeContains(uintptr_t start, uintptr_t limit, uintptr_t addr,
+                          uint32_t size) {
+  if (addr < start || addr >= limit)
+    return false;
+  if (size == 0)
+    return true;
 
   uintptr_t end = addr + (uintptr_t)size;
-  if (end < addr) return false;
+  if (end < addr)
+    return false;
   return end <= limit;
 }
 
 static bool TaskOwnsUserRange(Task *task, uintptr_t addr, uint32_t size) {
-  if (!task || task->ring0) return false;
+  if (!task || task->ring0)
+    return false;
 
   if (RangeContains(USER_EXEC_LOAD_ADDR, USER_EXEC_END, addr, size)) {
     return true;
   }
 
-  if (task->address_space && task->address_space != PagingKernelAddressSpace()) {
+  if (task->address_space &&
+      task->address_space != PagingKernelAddressSpace()) {
     return RangeContains(USER_STACK_BASE, USER_STACK_TOP, addr, size);
   }
 
@@ -103,12 +113,13 @@ static bool TaskOwnsUserRange(Task *task, uintptr_t addr, uint32_t size) {
   }
 
   return RangeContains((uintptr_t)task->user_stack_allocation,
-      (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE, addr, size);
+                       (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE,
+                       addr, size);
 }
 
 static bool IsFixedUserRange(uintptr_t addr, uint32_t size) {
   return RangeContains(USER_EXEC_LOAD_ADDR, USER_EXEC_END, addr, size) ||
-      RangeContains(USER_STACK_BASE, USER_STACK_TOP, addr, size);
+         RangeContains(USER_STACK_BASE, USER_STACK_TOP, addr, size);
 }
 
 static void SchedReapDeadTasks(void) {
@@ -154,7 +165,7 @@ void SCHEDInit(void) {
   RootTask.name = "SCHED";
   RootTask.address_space = PagingKernelAddressSpace();
   TaskTail = &RootTask;
-  ActiveTask=&RootTask;
+  ActiveTask = &RootTask;
 }
 
 /*
@@ -162,13 +173,15 @@ void SCHEDInit(void) {
  * list, and assigns a PID. The caller decides whether the task runs in ring 0
  * or ring 3 and which initial CPU frame it receives.
  */
-Task *CreateTask(char *name,void (*start)(void)) {
+Task *CreateTask(char *name, void (*start)(void)) {
   static int pid = 1;
-  if (!name || !start) return NULL;
-  Task * new = kalloc(sizeof(Task));
-  if (!new) return NULL;
+  if (!name || !start)
+    return NULL;
+  Task *new = kalloc(sizeof(Task));
+  if (!new)
+    return NULL;
   memset(new, 0, sizeof(Task));
-  new->name=TaskNameDup(name);
+  new->name = TaskNameDup(name);
   if (!new->name) {
     kfree(new);
     return NULL;
@@ -176,8 +189,8 @@ Task *CreateTask(char *name,void (*start)(void)) {
   new->next = NULL;
   TaskTail->next = new;
   TaskTail = new;
-  new->ring0=false;
-  new->start=(void*)start;
+  new->ring0 = false;
+  new->start = (void *)start;
   new->owned_allocation = NULL;
   new->user_stack_allocation = NULL;
   new->address_space = PagingKernelAddressSpace();
@@ -192,7 +205,9 @@ Task *CreateTask(char *name,void (*start)(void)) {
  * 0 at the task entry point.
  */
 static InterruptFrame *SetupRing0Frame(Task *task) {
-  InterruptFrame *frame = (InterruptFrame *)&task->stack[sizeof(task->stack) - sizeof(InterruptFrame)];
+  InterruptFrame *frame =
+      (InterruptFrame *)&task
+          ->stack[sizeof(task->stack) - sizeof(InterruptFrame)];
   memset(frame, 0, sizeof(InterruptFrame));
   frame->ds = KERNEL_DATA_SELECTOR;
   frame->es = KERNEL_DATA_SELECTOR;
@@ -209,15 +224,18 @@ static InterruptFrame *SetupRing0Frame(Task *task) {
  * iretd will restore ring 3 selectors and switch to the task's user stack.
  */
 static InterruptFrame *SetupRing3Frame(Task *task) {
-  if (!task->address_space || task->address_space == PagingKernelAddressSpace()) {
+  if (!task->address_space ||
+      task->address_space == PagingKernelAddressSpace()) {
     if (!task->user_stack_allocation) {
       task->user_stack_allocation = kalloc(USER_STACK_SIZE);
-      if (!task->user_stack_allocation) return NULL;
+      if (!task->user_stack_allocation)
+        return NULL;
     }
   }
 
   UserInterruptFrame *frame =
-      (UserInterruptFrame *)&task->stack[sizeof(task->stack) - sizeof(UserInterruptFrame)];
+      (UserInterruptFrame *)&task
+          ->stack[sizeof(task->stack) - sizeof(UserInterruptFrame)];
   memset(frame, 0, sizeof(UserInterruptFrame));
   frame->frame.ds = USER_DATA_SELECTOR;
   frame->frame.es = USER_DATA_SELECTOR;
@@ -227,8 +245,8 @@ static InterruptFrame *SetupRing3Frame(Task *task) {
   frame->frame.cs = USER_CODE_SELECTOR;
   frame->frame.eflags = 0x200;
   frame->useresp = task->address_space == PagingKernelAddressSpace()
-      ? (uint32_t)task->user_stack_allocation + USER_STACK_SIZE
-      : USER_STACK_TOP;
+                       ? (uint32_t)task->user_stack_allocation + USER_STACK_SIZE
+                       : USER_STACK_TOP;
   frame->ss = USER_DATA_SELECTOR;
   return &frame->frame;
 }
@@ -237,14 +255,16 @@ static InterruptFrame *SetupRing3Frame(Task *task) {
  * Creates a ring 3 task with a dedicated kernel interrupt stack and user
  * stack so privilege transitions have stable state to save and restore.
  */
-int AppendTask(char * name, void (*start)(void)) {
-  Task *tsk = CreateTask(name,start);
-  if (!tsk) return -1;
+int AppendTask(char *name, void (*start)(void)) {
+  Task *tsk = CreateTask(name, start);
+  if (!tsk)
+    return -1;
   tsk->ring0 = false;
   tsk->frame = SetupRing3Frame(tsk);
   if (!tsk->frame) {
     TaskTail = &RootTask;
-    for (Task *current = &RootTask; current && current->next; current = current->next) {
+    for (Task *current = &RootTask; current && current->next;
+         current = current->next) {
       if (current->next == tsk) {
         current->next = NULL;
         TaskTail = current;
@@ -259,21 +279,24 @@ int AppendTask(char * name, void (*start)(void)) {
 }
 
 int AppendTaskWithAddressSpace(char *name, void (*start)(void),
-    AddressSpace *address_space) {
+                               AddressSpace *address_space) {
   Task *tsk = CreateTask(name, start);
-  if (!tsk) return -1;
+  if (!tsk)
+    return -1;
   tsk->ring0 = false;
   tsk->address_space = address_space;
   tsk->frame = SetupRing3Frame(tsk);
   if (!tsk->frame) {
     TaskTail = &RootTask;
-    for (Task *current = &RootTask; current && current->next; current = current->next) {
+    for (Task *current = &RootTask; current && current->next;
+         current = current->next) {
       if (current->next == tsk) {
         current->next = NULL;
         TaskTail = current;
         break;
       }
     }
+    tsk->address_space = NULL;
     DestroyTask(tsk);
     return -1;
   }
@@ -285,9 +308,10 @@ int AppendTaskWithAddressSpace(char *name, void (*start)(void),
  * Creates a ring 0 task. These tasks keep kernel selectors and return to the
  * entry point without a privilege transition.
  */
-int AppendTaskRing0(char * name, void (*start)(void)) {
-  Task *tsk = CreateTask(name,start);
-  if (!tsk) return -1;
+int AppendTaskRing0(char *name, void (*start)(void)) {
+  Task *tsk = CreateTask(name, start);
+  if (!tsk)
+    return -1;
   tsk->ring0 = true;
   tsk->frame = SetupRing0Frame(tsk);
   tsk->running = true;
@@ -306,8 +330,9 @@ int TaskSetOwnedAllocation(int pid, void *allocation) {
 
 /* Mark current task as dead */
 void SchedMarkDead(void) {
-  if (!ActiveTask || ActiveTask == &RootTask) return;
-  RemoveGUITask(ActiveTask->pid);
+  if (!ActiveTask || ActiveTask == &RootTask)
+    return;
+  RemoveCurrentGUITask(ActiveTask->pid);
   ActiveTask->running = false;
 }
 
@@ -329,13 +354,12 @@ int TaskKillName(char *name) {
 }
 
 void TaskKillCurrent(void) {
-  if (!ActiveTask || ActiveTask == &RootTask) return;
+  if (!ActiveTask || ActiveTask == &RootTask)
+    return;
   SchedMarkDead();
 }
 
-int TaskFetchID(void) {
-  return ActiveTask ? ActiveTask->pid : -1;
-}
+int TaskFetchID(void) { return ActiveTask ? ActiveTask->pid : -1; }
 
 /*
  * Stops a task by PID. Killing the currently running task halts immediately to
@@ -352,21 +376,13 @@ void TaskKill(int pid) {
   }
 }
 
-int SchedGUITaskAppend(const char *name, uint8_t *lgm) {
-  if (!name || !lgm) return -1;
-
-  char kernel_name[GUI_TASK_NAME_MAX + 1];
-  uint8_t kernel_lgm[GUI_LGM_SIZE];
-
-  if (CopyStringFromCurrentTaskUser(kernel_name, sizeof(kernel_name), name) != 0) {
+int SchedGUITaskAppend(uint16_t *pgm) {
+  if (!pgm)
     return -1;
-  }
-  if (CopyFromCurrentTaskUser(kernel_lgm, lgm, GUI_LGM_SIZE) != 0) {
-    return -1;
-  }
 
   int pid = ActiveTask->pid;
-  if (AppendGUITask(pid, kernel_name, kernel_lgm) != 0) return -1;
+  if (AppendGUITask(pid, pgm) != 0)
+    return -1;
   return pid;
 }
 
@@ -375,7 +391,8 @@ int SchedGUITaskAppend(const char *name, uint8_t *lgm) {
  */
 bool IsTaskActive(int pid) {
   IterateSchedule(_) {
-    if (current && current->pid == pid) return current->running;
+    if (current && current->pid == pid)
+      return current->running;
   }
   return false;
 }
@@ -396,7 +413,8 @@ void ListTask(void) {
 }
 
 int CopyFromCurrentTaskUser(void *dst, const void *src, uint32_t size) {
-  if (!dst || !src) return -1;
+  if (!dst || !src)
+    return -1;
   if (!TaskOwnsUserRange(ActiveTask, (uintptr_t)src, size) &&
       !IsFixedUserRange((uintptr_t)src, size)) {
     return -1;
@@ -405,8 +423,10 @@ int CopyFromCurrentTaskUser(void *dst, const void *src, uint32_t size) {
   return 0;
 }
 
-int CopyStringFromCurrentTaskUser(char *dst, uint32_t dst_size, const char *src) {
-  if (!dst || !src || dst_size == 0) return -1;
+int CopyStringFromCurrentTaskUser(char *dst, uint32_t dst_size,
+                                  const char *src) {
+  if (!dst || !src || dst_size == 0)
+    return -1;
 
   for (uint32_t i = 0; i < dst_size; ++i) {
     if (!TaskOwnsUserRange(ActiveTask, (uintptr_t)(src + i), 1) &&
@@ -461,7 +481,8 @@ void SchedNext() {
  */
 InterruptFrame *Schedule(InterruptFrame *frame) {
   asm volatile("cli");
-  if (!ActiveTask || !frame) return frame;
+  if (!ActiveTask || !frame)
+    return frame;
 
   ActiveTask->frame = frame;
   ActiveTask->tick++;
@@ -469,13 +490,17 @@ InterruptFrame *Schedule(InterruptFrame *frame) {
 
   SchedNext();
   if (!ActiveTask->frame) {
-    ActiveTask->frame = ActiveTask->ring0 ? SetupRing0Frame(ActiveTask) : SetupRing3Frame(ActiveTask);
+    ActiveTask->frame = ActiveTask->ring0 ? SetupRing0Frame(ActiveTask)
+                                          : SetupRing3Frame(ActiveTask);
     if (!ActiveTask->frame) {
       ActiveTask->running = false;
       ActiveTask = &RootTask;
       TSSSetKernelStack(TaskKernelStackTop(ActiveTask));
       PagingSwitchAddressSpace(ActiveTask->address_space);
-      return frame;
+      if (!ActiveTask->frame) {
+        halt();
+      }
+      return ActiveTask->frame;
     }
   }
 

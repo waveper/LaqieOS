@@ -1,0 +1,335 @@
+================================================================
+Laqie OS - Detailed Memory Map
+================================================================
+Target: i386 / i486 flat protected mode, monolithic kernel
+Paging: 32-bit, 4 KiB pages, two-level (page directory -> page table)
+Segmentation: flat 4 GiB via GDT (code/data, DPL 0 and DPL 3), TSS per-task
+Source of truth: kernel/layout.h, kernel/link.ld, kernel/entry.asm,
+                 boot/bootsector.asm, boot/stage2/main.asm
+
+Hex suffix: 0x prefix; all addresses physical unless marked "virt".
+
+
+================================================================
+1. HIGH-LEVEL REGION SUMMARY
+================================================================
+  Range                          Size     Owner
+  -----------------------------  -------  ----------------------------
+  0x00000000-0x000003FF           1 KiB   Real-mode IVT (BIOS)
+  0x00000400-0x000004FF           1/4 KiB  BIOS Data Area (BDA)
+  0x00000500                       4 B    BOOT_INFO_ADDR (RAM above 1 MiB)
+  0x00000510                       4 B    VideoPysicalAddress (VBE LFB)
+  0x00000600                       ~      E820 buffer (transient)
+  0x00001000-0x00004DFF          15 KiB   Boot stage 2 (org 0x1000)
+  0x00004E00-0x000069FF           7 KiB   FAT12 root directory buffer
+  0x00006A00-0x00007BFF         4.5 KiB   FAT12 FAT table buffer
+  0x00007000-0x00007BFF           ~       APM real-mode trampoline (runtime)
+  0x00007C00-0x00007DFF           512 B   Boot sector (MBR, loaded by BIOS)
+  0x00007E00-0x00007FFF           512 B   Bootloader stack
+  0x00008000-0x00008FFF         4 KiB    Floppy DMA buffer (channel 2)
+  0x00008FFF-0x0008FFFF         4 KiB    (contiguous scratch below kernel stack)
+  0x00010000-...                up to 64 KiB  Kernel image (linked at 0x10000)
+  0x00090000                      top    KERNEL_STACK_TOP (bootstrap stack)
+  0x00100000-0x00120000         1.125MiB User-space fixed ranges (per process)
+  0x00200000-0x002FFFFF          1 MiB   Page-metadata bitmap (reserved)
+  0x00120000...0x100000+MAX_ADDR        Kernel heap / page allocator arena
+  LFB (varies)                  614400  VBE 640x480 16bpp framebuffer
+
+
+================================================================
+2. CONVENTIONAL MEMORY / BOOT REGIONS (real mode)
+================================================================
+0x00000000 - 0x000003FF   Real-mode IVT, left untouched.
+0x00000400 - 0x000004FF   BIOS Data Area (BDA), left untouched.
+0x00000500               BOOT_INFO_ADDR : dword written by stage2
+                          (boot/stage2/main.asm:8,134). Holds BIOS-reported
+                          installed memory ABOVE 1 MiB (bytes). Read by
+                          kernel/entry.asm:8,27 into BootInstalledMemory,
+                          surfaced as the global MAX_ADDR (kernel/main.c:26,50).
+0x00000510               VideoPysicalAddress : dword written by stage2 VBE
+                          probe (boot/stage2/vbe.asm:3,25) = framebuffer LFB
+                          address. Read by entry.asm:9,25 and passed as the
+                          VIDEO_ADRESS argument to KMain.
+0x00000600               E820_BUFFER : transient E820 map buffer used by
+                          detect_memory_e820 (boot/stage2/main.asm:9).
+0x00001000 - 0x00004DFF  Boot stage 2. Loaded by the boot sector at org
+                          0x1000 (STAGE2_ADDR, bootsector.asm:126). 15 KiB.
+0x00004E00 - 0x000069FF  FAT12 root directory stored by boot sector
+                          (FAT_ROOT_DIR_ADDR, bootsector.asm:128) = 14*512 B.
+0x00006A00 - 0x00007BFF  FAT12 table stored by boot sector
+                          (FAT_TABLE_ADDR, bootsector.asm:127) = 9*512 B.
+0x00007000              APM shutdown trampoline. apm16.asm is org'd at 0x7000
+                          and copied there at runtime by APMShutdown
+                          (kernel/driver/apm/apm.c:8-10). Runs with sp=0x7C00
+                          and temporarily overlaps the FAT buffer above.
+0x00007C00 - 0x00007DFF  Boot sector loaded here by the BIOS (org 0x7C00).
+0x00007E00 - 0x00007FFF  Bootloader stack (512 B), sp=0x8000
+                          (BOOTLOADER_STACK_BASE, bootsector.asm:125).
+0x00008000              Floppy DMA buffer (FLOPPY_DMA_BUFFER,
+                          kernel/driver/floppy/floppy.c:7). DMA channel 2
+                          requires <1 MiB addressing.
+0x00007E00 - 0x0008FFFF  "Kernel stack" band; the old boot map labelled
+                          0x8000-0xFFFF as a 32 KiB stack window, but the
+                          real stack cursor is set by stage2 to
+                          0x00090000 (KERNEL_STACK_TOP) and grows down.
+
+
+================================================================
+3. KERNEL IMAGE (linked at physical 0x00010000)
+================================================================
+Linked with kernel/link.ld, base 0x10000, OUTPUT_FORMAT elf32-i386.
+Sections, in order (each 4 KiB aligned):
+  .text          executable code, entry _start
+  .rodata        constants + .note.gnu.build-id
+  .data          initialized data
+  .bss           KernelBssStart..KernelBssEnd (zeroed by entry.asm:19-23)
+KernelEnd marks the end of the image.
+
+Hard limits:
+  * Stage 2 refuses a >64 KiB kernel (kernel_too_large,
+    boot/stage2/main.asm:227). Link base 0x10000 + 64 KiB = 0x20000.
+  * kernel/main.c:47 panics if KernelEnd reaches KERNEL_STACK_TOP (0x90000).
+
+Static kernel objects inside .bss (representative):
+  - GDT: 6 entries (kernel/gdt.c:60) + GDTR
+  - IDT: 256 gate entries, 2 KiB (kernel/idt.c:69)
+  - TSS (kernel/gdt.c:83) with ESP0 swizzled per task switch
+  - RootTask scheduler node (kernel/sched/sched.c:34) incl. embedded 8 KiB
+    kernel stack
+  - svga_buffer pointer, screen pitch constants (kernel/driver/svga/svga.c)
+
+After boot a zero-fill of .bss and identity paging make kernel virtual
+addresses equal physical addresses (0x10000..KernelEnd).
+
+
+================================================================
+4. VBE FRAMEBUFFER PATH
+================================================================
+Mode: VBE 0x0111 -> 640x480, 16 bpp (RGB565), pitch 1280 B/line.
+Size: 640 * 480 * 2 = 614400 bytes (kernels use this constant in
+      main.c:59 and gui/main.c:38).
+Flow:
+  1. stage2 probes LFB address into 0x0510 (vbe.asm).
+  2. entry.asm forwards it to KMain(VIDEO_ADRESS).
+  3. After paging is on, PagingMapKernelRange(VIDEO_ADRESS, 614400)
+     (kernel/main.c:59) identity-maps the LFB so the kernel can write it.
+  4. svga_buffer = VIDE_ADRESS (kernel/driver/svga/svga.c:17).
+The LFB physical address is variable (usually >= 0x10000000) and is NOT part
+of the RAM arena tracked by the allocator.
+
+
+================================================================
+5. PHYSICAL MEMORY DETECTION & ALLOCATOR ARENA
+================================================================
+Detection (boot/stage2/main.asm:127-225):
+  INT 15h E820 (preferred) sums usable regions above 1 MiB; falls back to
+  E801 then INT 15h AH=88h. Result stored at 0x0500 -> BootInstalledMemory
+  -> RAMCountSize (stdlib/stdmem.c:7) -> MAX_ADDR (bytes above 1 MiB).
+
+Page size: 4 KiB (PAGE_SIZE, kernel/page/bitmap.h:7).
+
+Metadata bitmap (kernel/page/bitmap.c):
+  Fixed base: EntriesBitmap = 0x00200000, capacity 262144 * 4 B = 1 MiB,
+  i.e. 0x00200000 - 0x002FFFFF. This 1 MiB region is explicitly reserved in
+  InitBitmap (bitmap.c:124-128) and never handed out.
+  262144 pages * 4 KiB = 1 GiB -> allocator addressable RAM is capped at
+  1 GiB above 1 MiB even if the machine reports more (HowManyPagesCouldFitInRAM,
+  bitmap.c:263-267).
+  Entry encoding (32 bits):
+    bits 0..2  status (bit0 available, bit1 allocated, bit2 child)
+    bits 3..18 child count (parent page records run length - 1)
+    bits 19..31 reserved
+  Page index i <-> physical address: MEMORY_BASE + i*PAGE_SIZE
+  (MEMORY_BASE = 0x00100000).
+
+Allocatable range (MemoryStart, bitmap.c:89-96):
+  = max( page_align(KernelEnd), USER_SPACE_END 0x00120000 )
+  ... up to 0x100000 + MAX_ADDR.
+So the kernel heap starts at 1.125 MiB minimum and everything from the end
+of the image up to 1 MiB is reserved (kernel image + user-space fixed ranges
+live there).
+
+Minimum requirement: (MAX_ADDR + 0x100000) >= 0x400000 -> at least 4 MiB
+total RAM or the kernel panics (kernel/main.c:51-53).
+
+Allocator API (kernel/page/bitmap.c):
+  KAlloc(bytes)  - first-fit run of consecutive free pages, Hint pointer
+                   NextFreePageHint for speed; parent+child metadata.
+  KFree(addr)    - only on a parent page; frees the whole run.
+  kalloc/kfree   - thin header-based slab on top of KAlloc
+                   (kernel/page/kalloc.c); BlockHeader is 8 bytes
+                   (Size + Next), so small objects still cost a page.
+
+Typical heap consumers:
+  - Page directory + page tables (each 4 KiB)
+  - Task structs (contains an 8 KiB embedded kernel stack) - ~8.2 KiB each
+  - FAT12 buffers / executable file buffers (kernel/sched/exec.c:189-192)
+  - GUITask node, RAMFS (work-in-progress, not linked), etc.
+
+
+================================================================
+6. VIRTUAL MEMORY (paging) - KERNEL
+================================================================
+Enable order (kernel/main.c:50-58): set MAX_ADDR -> GDT/IDT/PIC/PIT ->
+PagingInit.
+
+PagingInit (kernel/page/paging.c:127-139):
+  - Allocates one page directory for KernelSpace.
+  - Identity-maps 0 .. 0x00100000 + MAX_ADDR, i.e. low memory + the whole
+    detected RAM (0x100000 + MAX_ADDR), as supervisor RW pages.
+  - Loads CR3 = kernel page directory, sets CR0.PG.
+  - The kernel therefore runs in a flat identity mapping (virt == phys).
+
+Page table accounting:
+  Identity mapping 0..(0x100000+MAX_ADDR) needs ceil((0x100000+MAX_ADDR)/4KiB)
+  frames; each page table covers 1024 frames (4 MiB). For 32 MiB RAM that is
+  1 PD + 8 PT = 36 KiB of heap.
+
+Framebuffer: PagingMapKernelRange maps the LFB into the kernel directory
+(main.c:59) via the same identity scheme.
+
+Per-space metadata (kernel/page/paging.c:16-20):
+  AddressSpace { uint32_t *directory; uint8_t owned_tables[1024]; }
+  owned_tables marks PDEs that were privately allocated for that address
+  space (instead of being shared copies of the kernel directory).
+
+User address spaces start as a memcpy of the kernel directory (paging.c:156)
+so every user process sees kernel mappings (no copy-on-write, no high-half
+split -- kernel RAM is simply left supervisor-only).
+
+
+================================================================
+7. VIRTUAL MEMORY - USER PROCESS (constants in kernel/layout.h)
+================================================================
+Per ring-3 process the executor maps 3 regions:
+
+  virt                    size    contents
+  0x00100000 -> 0x0010FFFF  64 KiB  Executable image (USER_EXEC_LOAD_ADDR,
+                                    USER_EXEC_MAX_SIZE 0x10000)
+  0x0011E000 -> 0x0011FFFF   8 KiB  User stack (USER_STACK_BASE,
+                                    USER_STACK_SIZE 0x2000; TOP 0x120000)
+  0x00120000                        USER_SPACE_END (allocator floor)
+
+Layout constants (kernel/layout.h):
+  USER_EXEC_LOAD_ADDR = 0x100000   USER_EXEC_MAX_SIZE = 0x10000
+  USER_STACK_SIZE     = 0x2000     USER_STACK_TOP    = 0x120000
+  USER_STACK_BASE     = 0x11E000   USER_SPACE_END    = 0x120000
+
+These private pages are freshly allocated from the heap by
+PagingMapUserRange (kernel/page/paging.c:177-199) and mapped with
+PAGE_USER|PAGE_RW, i.e. their physical backing lives in the RAM arena
+(typically >= 0x120000), NOT at 0x100000-0x120000 physical.
+
+The images themselves are linked at 0x100000 (user/link.ld:5) and stamped
+"LQE32" (user/crt.asm:12). Executor supports flat v1 and relocatable v2
+(kernel/sched/exec.c). Relocation delta = runtime base (0x100000) -
+preferred base, applied to absolute 32-bit words via PagingVirtualToKernel.
+
+Per-process dynamic buffers:
+  - testprog (GUI demo) declares `static uint16_t pgm[61440]` = 122880 B
+    inside its image (user/testprog.c:4); the kernel GUI task blits
+    614400 B from it to the framebuffer (kernel/gui/main.c:38).
+
+Unmapped in user processes: everything above 0x120000 (heap arena pages are
+not PAGE_USER) and all addresses below 0x100000 -> any access faults.
+
+Syscall path issues ring-3 int 0x80 (IDT gate 0x80, DPL3, kernel/idt.c:194);
+the kernel copies pointers across via CopyFromCurrentTaskUser /
+IsFixedUserRange which validate against the ranges above
+(kernel/sched/sched.c:98-123,415-445).
+
+
+================================================================
+8. TASK / SCHEDULER MEMORY
+================================================================
+Task object (kernel/sched/sched.c:19-32), one heap allocation per task:
+  struct Task {
+    uint8_t stack[8192];        kernel interrupt stack (8 KiB)
+    InterruptFrame *frame;      saved context, top of stack[] below
+    void *start;                entry point
+    void *owned_allocation;     per-task heap object (freed on destroy)
+    void *user_stack_allocation; fallback user stack for ring0-in-kernel cs
+    AddressSpace *address_space; NULL/private user space or kernel space
+    int tick, pid; struct Task *next; bool running; char *name; int ring0;
+  }
+Cost per task: one 4 KiB page (Task header+stack barely exceed 8 KiB, so
+kalloc rounds to 8 KiB = 2 pages).
+
+Interrupt frames live at the top of each kernel stack (SetupRing0Frame /
+SetupRing3Frame, sched.c:207-252). On every context switch TSS.ESP0 is set
+to the next task's stack top (sched.c:463, SchedNext) so ring-0 entry after
+a user trap uses the new task's kernel stack.
+
+Root task (pid 0) is static in .bss and keeps the kernel address space.
+
+Initial bootstrap: stage2 sets ESP=EBP=0x90000 (stage2/main.asm:64-68) then
+jumps to _start (0x10000). KMain runs on that stack; KERNEL_STACK_TOP
+(0x90000) is also the initial TSS esp0 (kernel/gdt.c:87).
+
+
+================================================================
+9. SEGMENTATION (GDT) - kernel/gdt.c
+================================================================
+Entry  selector  base    limit        access/gran  DPL     purpose
+  0      -        -       -            -            -      Null
+  1     0x08      0      0xFFFFF       0x9A/0xCF    DPL0   Kernel code
+  2     0x10      0      0xFFFFF       0x92/0xCF    DPL0   Kernel data
+  3     0x18      0      0xFFFFF       0xFA/0xCF    DPL3   User code
+  4     0x20      0      0xFFFFF       0xF2/0xCF    DPL3   User data
+  5     0x28      0      sizeof(TSS)-1 0x89/0x40    DPL0   TSS (I/O map base)
+The scheduler's USER_CODE_SELECTOR 0x1B / 0x23 are the RPL3 forms of the
+0x18/0x20 descriptors (kernel/sched/sched.c:14-15).
+
+
+================================================================
+10. FAT12 / FLOPPY DRIVE
+================================================================
+Geometry (boot BPB, bootsector.asm:36-48):
+  512 B/sector, 1 sector/cluster, 2 FATs x 9 sectors, 224 root entries,
+  2880 total sectors (1.44 MB floppy), root dir = 14 sectors (sectors 19-32).
+  Data area starts at sector 33, cluster 2 (matches fat_read_file_from_fat:
+  sector = cluster + 33 - 2, bootsector.asm:357-358).
+
+Runtime buffers:
+  - FAT table at 0x6A00 (boot); + root dir 0x4E00 (boot) used during load.
+  - Kernel driver re-reads through the floppy DMA buffer at 0x8000 and
+    malloc'd FAT tables via the page allocator (kernel/fs/fat12.c uses
+    kalloc on load; files read into kalloc'd buffers by ReadFile,
+    kernel/fs/api.c).
+
+
+================================================================
+11. MEMORY ACCOUNTING QUICK REFERENCE
+================================================================
+  Total reported   = MAX_ADDR + 0x00100000     (shell meminfo, kernel/shell.c:90)
+  Usable arena     = MAX_ADDR                  (kernel/shell.c:93)
+  Used             = (MAX_ADDR/1KiB) - free    (kernel/shell.c:96)
+  Free             = CountAvailablePage()*4KiB (CountAvailablePage = pages with
+                                                 bit0 set && bit1 clear)
+
+Fixed overheads:
+  + 1 KiB  page-metadata bitmap at 0x200000-0x300000 (reserved)
+  + kernel image + low-memory maps (< 0x120000, reserved)
+  + page tables/directories (1 PD + 1 PT per active 4 MiB of RAM)
+  + VBE LFB: mapped but outside the arena
+
+
+================================================================
+12. KNOWN QUIRKS / NOTES
+================================================================
+  * Metadata bitmap reserves exactly pages covering 0x200000-0x2FFFFF, but
+    page index i maps to MEMORY_BASE + i*4096, so the bitmap's OWN bytes sit
+    at page indices 256..767 (0x200000..0x300000) - matched correctly.
+  * Because allocations start at max(KernelEnd, 0x120000), the physical
+    window 0x100000..0x11FFFF that is identity-mapped for user virt stays
+    permanently reserved even though it is physically idle.
+  * APM trampoline (0x7000) overlaps the stage2 FAT buffer; harmless because
+    shutdown only runs after boot I/O is long done.
+  * RAMFS (kernel/fs/ramfs.c) is a work-in-progress - NOT linked in.
+  * User GUI blit copies 614400 B from a 122880 B buffer (a latent overflow,
+    constrained by the 60 KiB mapped exec region).
+  * The "32 KiB kernel stack" in the old boot map comment vs KERNEL_STACK_TOP
+    0x90000: the stack actually tops out at 0x90000, giving a ~576 KiB band
+    above the boot structures.
+
+NOTE: lowkey used AI for this, well, lazy I guess

@@ -2,7 +2,7 @@ CC = clang
 AS = nasm
 LD = ld.lld
 
-CFLAGS = --target=i386-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
+CFLAGS = --target=i486-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
 LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
 all: hello.bin testprog.bin example.bin segfault.bin string.o shell.bin illegal.bin

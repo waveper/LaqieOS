@@ -1,24 +1,23 @@
-#include "../include/serial/serial.h"
-#include "driver/svga/svga.h"
+#include "gui/main.h"
 #include "../include/pic.h"
 #include "../include/pit.h"
+#include "../include/serial/serial.h"
 #include "../stdlib/stdmem.h"
 #include "../stdlib/string.h"
-#include "sched/sched.h"
 #include "driver/floppy/floppy.h"
 #include "driver/ps2/keyboard.h"
 #include "driver/ps2/mouse.h"
-#include "panic.h"
+#include "driver/svga/svga.h"
 #include "layout.h"
-#include "sched/exec.h"
 #include "page/paging.h"
-#include "gui/main.h"
+#include "panic.h"
+#include "sched/exec.h"
+#include "sched/sched.h"
 
 #define cli() asm("cli");
 #define sti() asm("sti");
 
 extern void IDTInit(void);
-extern void KShell(void);
 extern void KShellCommands(const char *string);
 extern void GDTInit(void);
 extern uint8_t KernelEnd;
@@ -26,7 +25,8 @@ extern void draw_demo(void);
 
 int MAX_ADDR;
 
-_Noreturn void PanicImpl(const char *const file, long line, const char *string) {
+_Noreturn void PanicImpl(const char *const file, long line,
+                         const char *string) {
   cli();
   SerialPrint("\r\n KERNEL PANIC: ");
   SerialPrint(string);
@@ -49,7 +49,6 @@ void KMain(uint32_t VIDEO_ADRESS) {
   }
   MAX_ADDR = RamCountSize();
   if ((MAX_ADDR + 0x100000) < 0x400000) {
-    // if less than 4 Megabytes
     Panic("RAM should be more than 4MB");
   }
   GDTInit();
@@ -101,18 +100,13 @@ void KMain(uint32_t VIDEO_ADRESS) {
 
   if (VIDEO_ADRESS != 0 && ps2_mouse_present) {
     SerialPrint("Launching kernel native GUI\r\n");
+    execute("FD0:/testprog.bin");
     GUIInit();
   }
 
-  PicClearIRQMask(0);
-  while (1) asm volatile("sti; hlt");
-  /*
-  SerialPrint("Entering Kernel-Space shell\r\n");
-  int ShellPID = AppendTaskRing0("shell", KShell);
-  SerialPrint("Lauched Shell at PID: ");
-  SerialPrintNum(ShellPID);
-  SerialPrint("\r\n");
+  KShellCommands("meminfo");
 
-  while (IsTaskActive(ShellPID)) asm volatile("sti; hlt");
-  */ // INFO: kernel-space shell are unused, it could be removed in the future
+  PicClearIRQMask(0);
+  while (1)
+    asm volatile("sti; hlt");
 }

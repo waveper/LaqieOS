@@ -1,12 +1,11 @@
-#include <stdint.h>
 #include "gui.h"
+#include <stdint.h>
 
-static uint8_t lgm[GUI_LOCAL_BUFFER_SIZE];
+static uint16_t pgm[61440];
 
 void main(void) {
-  lgm[1] = 'H';
-  lgm[2] = 'I';
-  GUIInit("TestProg", lgm);
+  pgm[1] = 0x88;
+  GUIInit(pgm);
   while (1)
     ;
 }

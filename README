@@ -11,3 +11,7 @@
   - Use `snake_case` or descriptive lowercase labels in assembly
   - Keep file names lowercase and grouped by subsystem
 
+-- System requirement??
+  - likely should use pentium for performance because I don't bless my code with optimization that much.. but i486 is valid
+  - the required memory is about 6 Megabytes
+uhh that's it
