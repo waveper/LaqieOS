@@ -4,6 +4,7 @@
 #include "../panic.h"
 #include "bitmap.h"
 #include "kalloc.h"
+#include <stdbool.h>
 
 #define PAGE_PRESENT 0x001
 #define PAGE_RW 0x002
@@ -202,8 +203,10 @@ int PagingMapUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
 }
 
 // Maps physical address to virtual
+// if bool user is 1, then map it as user acessible
+// if not, then it was kernel space
 int PagingMapUserPhysicalRange(AddressSpace *space, uint32_t virt,
-                               uint32_t phys, uint32_t size) {
+                               uint32_t phys, uint32_t size, bool user) {
   if (!space || space == &KernelSpace || size == 0)
     return -1;
   if ((virt & (PAGE_SIZE - 1)) != (phys & (PAGE_SIZE - 1)))
@@ -216,12 +219,42 @@ int PagingMapUserPhysicalRange(AddressSpace *space, uint32_t virt,
 
   uint32_t page_phys = phys & ~(uint32_t)(PAGE_SIZE - 1);
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
-    if (MapPage(space, addr, page_phys, PAGE_RW | PAGE_USER) != 0) {
-      return -1;
+    if (user) {
+      if (MapPage(space, addr, page_phys, PAGE_RW | PAGE_USER) != 0) {
+        return -1;
+      }
+    } else {
+      if (MapPage(space, addr, page_phys, PAGE_RW) != 0) {
+        return -1;
+      }
     }
     page_phys += PAGE_SIZE;
   }
 
+  return 0;
+}
+
+/*
+ * Clears the page-table entries for a user range without freeing the physical
+ * pages behind them. Used to revoke a task's access to allocations that live
+ * in kernel-owned memory.
+ */
+int PagingUnmapUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
+  if (!space || space == &KernelSpace || size == 0)
+    return -1;
+
+  uint32_t start = virt & ~(uint32_t)(PAGE_SIZE - 1);
+  uint32_t end = PageAlignUp(virt + size);
+  if (end < start)
+    return -1;
+
+  for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
+    uint32_t dir_index = PageDirectoryIndex(addr);
+    if (!space->owned_tables[dir_index])
+      continue;
+    uint32_t *table = PageTableFromEntry(space->directory[dir_index]);
+    table[PageTableIndex(addr)] = 0;
+  }
   return 0;
 }
 

@@ -17,7 +17,7 @@ main.o: main.c
 	$(CC) $(CFLAGS) -c main.c -o main.o
 
 lqwm.elf: main.o fb-req.o
-	$(LD) $(LDFLAGS) ../crt.o main.o fb-req.o  -o lqwm.elf
+	$(LD) $(LDFLAGS) ../crt.o main.o fb-req.o ../stdlib.o ../string.o -o lqwm.elf
 
 .PHONY: all clean
 

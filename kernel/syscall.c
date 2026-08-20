@@ -1,9 +1,10 @@
 #include "../include/serial/serial.h"
+#include "fs/api.h"
 #include "sched/exec.h"
 #include "sched/sched.h"
 #include <stdint.h>
 
-// character I/O
+// Serial I/O
 #define SYS_PUTC 2
 #define SYS_PRINTS 3
 #define SYS_GETC 6
@@ -14,6 +15,17 @@
 
 // FRAME BUFFER ACCESS
 #define SYS_REQ_FB 5
+
+// Memory
+#define SYS_KALLOC 7
+#define SYS_KFREE 8
+#define SYS_USERMAP 9
+
+// File IO
+#define SYS_FILESIZE 10
+#define SYS_WRITEFILE 11
+#define SYS_READFILE 12
+#define SYS_DELFILE 13
 
 #define SYSCALL_PATH_MAX 128
 
@@ -67,6 +79,24 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
     return frame;
   case SYS_GETC:
     frame->eax = SerialRead();
+    return frame;
+  case SYS_KALLOC:
+    frame->eax = SchedTaskMalloc(frame->ebx);
+    return frame;
+  case SYS_KFREE:
+    frame->eax = (uint32_t)SchedTaskFree(frame->ebx);
+    return frame;
+  case SYS_USERMAP:
+    frame->eax = (uint32_t)SchedUserMMap(frame->ebx, frame->ecx, frame->edx);
+    return frame;
+  case SYS_FILESIZE:
+    char path[SYSCALL_PATH_MAX];
+    if (CopyStringFromCurrentTaskUser(path, sizeof(path),
+                                      (const char *)frame->ebx) != 0) {
+      frame->eax = -1;
+      return frame;
+    }
+    frame->eax = FileSize(path);
     return frame;
   }
 

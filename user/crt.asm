@@ -5,6 +5,9 @@ global prints
 global getchar
 global putchar
 global exec
+global kalloc
+global kfree
+global mmap
 
 _start:
   jmp pre_main
@@ -58,6 +61,38 @@ putchar:
   mov ebp, esp
   mov eax, 2
   mov ebx, [ebp+8]
+  int 0x80
+  mov esp, ebp
+  pop ebp
+  ret
+
+kalloc:
+  push ebp
+  mov ebp, esp
+  mov eax, 7
+  mov ebx, [ebp+8]
+  int 0x80
+  mov esp, ebp
+  pop ebp
+  ret
+
+kfree:
+  push ebp
+  mov ebp, esp
+  mov eax, 8
+  mov ebx, [ebp+8]
+  int 0x80
+  mov esp, ebp
+  pop ebp
+  ret
+
+mmap:
+  push ebp
+  mov ebp, esp
+  mov eax, 9
+  mov ebx, [ebp+8]
+  mov ecx, [ebp+12]
+  mov edx, [ebp+16]
   int 0x80
   mov esp, ebp
   pop ebp

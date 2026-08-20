@@ -5,7 +5,7 @@ LD = ld.lld
 CFLAGS = --target=i486-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
 LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
-all: hello.bin example.bin segfault.bin string.o shell.bin illegal.bin
+all: hello.bin example.bin segfault.bin string.o stdlib.o shell.bin illegal.bin ta.bin
 	$(MAKE) -C lqwm
 
 crt.o: crt.asm
@@ -50,6 +50,9 @@ segfault.bin: segfault.elf
 string.o: string.c string.h
 	$(CC) $(CFLAGS) -c string.c -o string.o
 
+stdlib.o: stdlib.c stdlib.h
+	$(CC) $(CFLAGS) -c stdlib.c -o stdlib.o
+
 shell.o: shell.c stdio.h string.h
 	$(CC) $(CFLAGS) -c shell.c -o shell.o
 
@@ -60,6 +63,17 @@ shell.bin: shell.elf
 	llvm-strip shell.elf -o shell.self
 	llvm-objcopy -O binary shell.self shell.bin
 	rm shell.self
+
+ta.o: test-alloc.c
+	$(CC) $(CFLAGS) -c test-alloc.c -o ta.o
+
+ta.elf: ta.o
+	$(LD) $(LDFLAGS) crt.o ta.o -o ta.elf
+
+ta.bin: ta.elf
+	llvm-strip ta.elf -o ta.self
+	llvm-objcopy -O binary ta.self ta.bin
+	rm ta.self
 
 .PHONY: all clean
 

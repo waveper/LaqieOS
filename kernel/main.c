@@ -20,7 +20,6 @@ extern void IDTInit(void);
 extern void KShellCommands(const char *string);
 extern void GDTInit(void);
 extern uint8_t KernelEnd;
-extern void draw_demo(void);
 
 int MAX_ADDR;
 uint32_t FRAME_BUFFER_ADDRESS;
@@ -71,7 +70,6 @@ void KMain(uint32_t VIDEO_ADRESS) {
     SerialPrint("VBE video address at: 0x");
     SerialPrintHex(VIDEO_ADRESS);
     SerialPrint("\r\n");
-    draw_demo(); // Test GUI drawing. for future GUI
   }
 
   int ps2_keyboard_present = PS2KeyboardInit();
