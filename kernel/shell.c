@@ -1,16 +1,15 @@
-#include <stdint.h>
-#include <stdbool.h>
-#include "../stdlib/stdmem.h"
 #include "../include/serial/serial.h"
+#include "../stdlib/stdmem.h"
 #include "../stdlib/string.h"
-#include "page/kalloc.h"
-#include "sched/sched.h"
-#include "sched/exec.h"
-#include "driver/ps2/mouse.h"
 #include "driver/apm/apm.h"
-#include "gui/main.h"
-#include "panic.h"
+#include "driver/ps2/mouse.h"
 #include "layout.h"
+#include "page/kalloc.h"
+#include "panic.h"
+#include "sched/exec.h"
+#include "sched/sched.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 // Max Arguments
 #define MARGS 16
@@ -19,7 +18,7 @@ typedef uint32_t size_t;
 extern int MAX_ADDR;
 extern uint8_t KernelEnd;
 
-void SerialReadMax(char * buffer, unsigned int size) {
+void SerialReadMax(char *buffer, unsigned int size) {
   unsigned int i = 0;
   char charbuffer;
 
@@ -52,18 +51,24 @@ void SerialReadMax(char * buffer, unsigned int size) {
 
 int ParseArguments(const char *buffer, char argv[MARGS][64]) {
   int argc = 0;
-  if (!buffer) return 0;
+  if (!buffer)
+    return 0;
 
   while (*buffer && argc < MARGS) {
     int i = 0;
-    while (*buffer == ' ') buffer++;
-    if (*buffer == '\0') break;
+    while (*buffer == ' ')
+      buffer++;
+    if (*buffer == '\0')
+      break;
 
     if (*buffer == '"') {
       for (++buffer; *buffer != '"' && *buffer && i < 63; ++buffer, ++i) {
-        argv[argc][i] = (*buffer == '\\') ? ((*(++buffer) == 'n') ? '\n' : *buffer) : *buffer;
+        argv[argc][i] = (*buffer == '\\')
+                            ? ((*(++buffer) == 'n') ? '\n' : *buffer)
+                            : *buffer;
       }
-      if (*buffer == '"') buffer++;
+      if (*buffer == '"')
+        buffer++;
     } else {
       for (; *buffer && *buffer != ' ' && i < 63; ++buffer, ++i) {
         argv[argc][i] = *buffer;
@@ -93,7 +98,8 @@ void KShellCommands(const char *string) {
     SerialPrintNum(MAX_ADDR / 1024);
     SerialPrint(" KB\r\n");
     SerialPrint("Page Usage: ");
-    uint32_t UsedKB = (MAX_ADDR / 1024) - ((CountAvailablePage() * PAGE_SIZE) / 1024);
+    uint32_t UsedKB =
+        (MAX_ADDR / 1024) - ((CountAvailablePage() * PAGE_SIZE) / 1024);
     SerialPrintNum(UsedKB);
     SerialPrint(" KB\r\n");
     SerialPrint("Available RAM: ");

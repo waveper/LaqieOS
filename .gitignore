@@ -9,3 +9,6 @@ stdlib/*.o
 user/*.o
 user/*.elf
 user/*.bin
+user/lqwm/*.o
+user/lqwm/*.elf
+user/lqwm/*.bin

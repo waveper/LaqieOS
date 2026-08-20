@@ -29,7 +29,7 @@ $(IMG): compile_boot $(KERNEL_BIN) compile_user
 	mcopy -i $(IMG) boot/boot.bin ::/
 	mcopy -i $(IMG) $(KERNEL_BIN) ::/
 	mcopy -i $(IMG) user/hello.bin ::/
-	mcopy -i $(IMG) user/testprog.bin ::/
+	mcopy -i $(IMG) user/lqwm/lqwm.bin ::/
 	mcopy -i $(IMG) user/example.bin ::/
 	mcopy -i $(IMG) user/segfault.bin ::/
 	mcopy -i $(IMG) user/shell.bin ::/

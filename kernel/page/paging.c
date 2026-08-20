@@ -1,20 +1,19 @@
 #include "paging.h"
-#include "bitmap.h"
-#include "kalloc.h"
+#include "../../stdlib/stdmem.h"
 #include "../layout.h"
 #include "../panic.h"
-#include "../../stdlib/stdmem.h"
+#include "bitmap.h"
+#include "kalloc.h"
 
 #define PAGE_PRESENT 0x001
-#define PAGE_RW      0x002
-#define PAGE_USER    0x004
-#define PAGE_ADDR    0xFFFFF000
+#define PAGE_RW 0x002
+#define PAGE_USER 0x004
+#define PAGE_ADDR 0xFFFFF000
 #define PAGE_ENTRIES 1024
 
 extern int MAX_ADDR;
 
-struct AddressSpace
-{
+struct AddressSpace {
   uint32_t *directory;
   uint8_t owned_tables[PAGE_ENTRIES];
 };
@@ -40,24 +39,23 @@ static uint32_t PageAlignUp(uint32_t value) {
   return (value + PAGE_SIZE - 1) & ~(uint32_t)(PAGE_SIZE - 1);
 }
 
-static uint32_t PageDirectoryIndex(uint32_t virt) {
-  return virt >> 22;
-}
+static uint32_t PageDirectoryIndex(uint32_t virt) { return virt >> 22; }
 
-static uint32_t PageTableIndex(uint32_t virt) {
-  return (virt >> 12) & 0x3FF;
-}
+static uint32_t PageTableIndex(uint32_t virt) { return (virt >> 12) & 0x3FF; }
 
 static uint32_t *PageTableFromEntry(uint32_t entry) {
   return (uint32_t *)(entry & PAGE_ADDR);
 }
 
 static int EnsurePrivatePageTable(AddressSpace *space, uint32_t dir_index) {
-  if (!space || dir_index >= PAGE_ENTRIES) return -1;
-  if (space->owned_tables[dir_index]) return 0;
+  if (!space || dir_index >= PAGE_ENTRIES)
+    return -1;
+  if (space->owned_tables[dir_index])
+    return 0;
 
   uint32_t *table = KAlloc(PAGE_SIZE);
-  if (!table) return -1;
+  if (!table)
+    return -1;
 
   if (space->directory[dir_index] & PAGE_PRESENT) {
     memcpy(table, PageTableFromEntry(space->directory[dir_index]), PAGE_SIZE);
@@ -72,11 +70,12 @@ static int EnsurePrivatePageTable(AddressSpace *space, uint32_t dir_index) {
 }
 
 static int MapPage(AddressSpace *space, uint32_t virt, uint32_t phys,
-    uint32_t flags) {
+                   uint32_t flags) {
   uint32_t dir_index = PageDirectoryIndex(virt);
   uint32_t table_index = PageTableIndex(virt);
 
-  if (EnsurePrivatePageTable(space, dir_index) != 0) return -1;
+  if (EnsurePrivatePageTable(space, dir_index) != 0)
+    return -1;
   uint32_t *table = PageTableFromEntry(space->directory[dir_index]);
   table[table_index] = (phys & PAGE_ADDR) | flags | PAGE_PRESENT;
   return 0;
@@ -89,7 +88,8 @@ static void FreeUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
     uint32_t dir_index = PageDirectoryIndex(addr);
     uint32_t table_index = PageTableIndex(addr);
-    if (!space->owned_tables[dir_index]) continue;
+    if (!space->owned_tables[dir_index])
+      continue;
 
     uint32_t *table = PageTableFromEntry(space->directory[dir_index]);
     uint32_t entry = table[table_index];
@@ -101,7 +101,7 @@ static void FreeUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
 }
 
 static void IdentityMapRange(AddressSpace *space, uint32_t start,
-    uint32_t size) {
+                             uint32_t size) {
   uint32_t end = PageAlignUp(start + size);
 
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
@@ -111,7 +111,8 @@ static void IdentityMapRange(AddressSpace *space, uint32_t start,
 
     if (!(space->directory[dir_index] & PAGE_PRESENT)) {
       table = KAlloc(PAGE_SIZE);
-      if (!table) Panic("Cannot allocate kernel page table");
+      if (!table)
+        Panic("Cannot allocate kernel page table");
       memset(table, 0, PAGE_SIZE);
       space->directory[dir_index] =
           ((uint32_t)table & PAGE_ADDR) | PAGE_PRESENT | PAGE_RW;
@@ -129,7 +130,8 @@ void PagingInit(void) {
 
   memset(&KernelSpace, 0, sizeof(KernelSpace));
   KernelSpace.directory = KAlloc(PAGE_SIZE);
-  if (!KernelSpace.directory) Panic("Cannot allocate kernel page directory");
+  if (!KernelSpace.directory)
+    Panic("Cannot allocate kernel page directory");
   memset(KernelSpace.directory, 0, PAGE_SIZE);
 
   IdentityMapRange(&KernelSpace, 0, map_size);
@@ -138,13 +140,12 @@ void PagingInit(void) {
   PagingEnabled = 1;
 }
 
-AddressSpace *PagingKernelAddressSpace(void) {
-  return &KernelSpace;
-}
+AddressSpace *PagingKernelAddressSpace(void) { return &KernelSpace; }
 
 AddressSpace *PagingCreateUserAddressSpace(void) {
   AddressSpace *space = kalloc(sizeof(AddressSpace));
-  if (!space) return NULL;
+  if (!space)
+    return NULL;
   memset(space, 0, sizeof(AddressSpace));
 
   space->directory = KAlloc(PAGE_SIZE);
@@ -159,7 +160,8 @@ AddressSpace *PagingCreateUserAddressSpace(void) {
 }
 
 void PagingDestroyAddressSpace(AddressSpace *space) {
-  if (!space || space == &KernelSpace) return;
+  if (!space || space == &KernelSpace)
+    return;
 
   FreeUserRange(space, USER_EXEC_LOAD_ADDR, USER_EXEC_MAX_SIZE);
   FreeUserRange(space, USER_STACK_BASE, USER_STACK_SIZE);
@@ -178,7 +180,8 @@ int PagingMapUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
   uint32_t start = virt & ~(uint32_t)(PAGE_SIZE - 1);
   uint32_t end = PageAlignUp(virt + size);
 
-  if (!space || space == &KernelSpace || end < start) return -1;
+  if (!space || space == &KernelSpace || end < start)
+    return -1;
 
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
     void *page = KAlloc(PAGE_SIZE);
@@ -198,11 +201,37 @@ int PagingMapUserRange(AddressSpace *space, uint32_t virt, uint32_t size) {
   return 0;
 }
 
+// Maps physical address to virtual
+int PagingMapUserPhysicalRange(AddressSpace *space, uint32_t virt,
+                               uint32_t phys, uint32_t size) {
+  if (!space || space == &KernelSpace || size == 0)
+    return -1;
+  if ((virt & (PAGE_SIZE - 1)) != (phys & (PAGE_SIZE - 1)))
+    return -1;
+
+  uint32_t start = virt & ~(uint32_t)(PAGE_SIZE - 1);
+  uint32_t end = PageAlignUp(virt + size);
+  if (end < start)
+    return -1;
+
+  uint32_t page_phys = phys & ~(uint32_t)(PAGE_SIZE - 1);
+  for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
+    if (MapPage(space, addr, page_phys, PAGE_RW | PAGE_USER) != 0) {
+      return -1;
+    }
+    page_phys += PAGE_SIZE;
+  }
+
+  return 0;
+}
+
 int PagingMapKernelRange(uint32_t start, uint32_t size) {
-  if (size == 0) return -1;
+  if (size == 0)
+    return -1;
 
   uint32_t end = PageAlignUp(start + size);
-  if (end < start) return -1;
+  if (end < start)
+    return -1;
 
   for (uint32_t addr = start; addr < end; addr += PAGE_SIZE) {
     uint32_t dir_index = PageDirectoryIndex(addr);
@@ -211,7 +240,8 @@ int PagingMapKernelRange(uint32_t start, uint32_t size) {
 
     if (!(KernelSpace.directory[dir_index] & PAGE_PRESENT)) {
       table = KAlloc(PAGE_SIZE);
-      if (!table) return -1;
+      if (!table)
+        return -1;
       memset(table, 0, PAGE_SIZE);
       KernelSpace.directory[dir_index] =
           ((uint32_t)table & PAGE_ADDR) | PAGE_PRESENT | PAGE_RW;
@@ -230,17 +260,21 @@ void *PagingVirtualToKernel(AddressSpace *space, uint32_t virt) {
   uint32_t dir_index = PageDirectoryIndex(virt);
   uint32_t table_index = PageTableIndex(virt);
 
-  if (!space || !(space->directory[dir_index] & PAGE_PRESENT)) return NULL;
+  if (!space || !(space->directory[dir_index] & PAGE_PRESENT))
+    return NULL;
 
   uint32_t *table = PageTableFromEntry(space->directory[dir_index]);
   uint32_t entry = table[table_index];
-  if (!(entry & PAGE_PRESENT)) return NULL;
+  if (!(entry & PAGE_PRESENT))
+    return NULL;
 
   return (void *)((entry & PAGE_ADDR) | (virt & (PAGE_SIZE - 1)));
 }
 
 void PagingSwitchAddressSpace(AddressSpace *space) {
-  if (!PagingEnabled) return;
-  if (!space) space = &KernelSpace;
+  if (!PagingEnabled)
+    return;
+  if (!space)
+    space = &KernelSpace;
   WriteCR3((uint32_t)space->directory);
 }

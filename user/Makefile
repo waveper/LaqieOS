@@ -5,7 +5,8 @@ LD = ld.lld
 CFLAGS = --target=i486-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
 LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
-all: hello.bin testprog.bin example.bin segfault.bin string.o shell.bin illegal.bin
+all: hello.bin example.bin segfault.bin string.o shell.bin illegal.bin
+	$(MAKE) -C lqwm
 
 crt.o: crt.asm
 	$(AS) -f elf32 crt.asm -o $@
@@ -16,20 +17,11 @@ illegal.bin: illegal.asm
 hello.o: hello.c
 	$(CC) $(CFLAGS) -c hello.c -o hello.o
 
-testprog.o: testprog.c gui.h
-	$(CC) $(CFLAGS) -c testprog.c -o testprog.o
-
 example.o: example.c
 	$(CC) $(CFLAGS) -c example.c -o example.o
 
-libgui.o: libgui.asm
-	$(AS) -f elf32 libgui.asm -o libgui.o
-
 hello.elf: crt.o hello.o link.ld
 	$(LD) $(LDFLAGS) crt.o hello.o -o hello.elf
-
-testprog.elf: crt.o testprog.o libgui.o link.ld
-	$(LD) $(LDFLAGS) crt.o testprog.o libgui.o -o testprog.elf
 
 example.elf: crt.o example.o link.ld
 	$(LD) $(LDFLAGS) crt.o example.o -o example.elf
@@ -38,11 +30,6 @@ hello.bin: hello.elf
 	llvm-strip hello.elf -o hello.self
 	llvm-objcopy -O binary hello.self hello.bin
 	rm hello.self
-
-testprog.bin: testprog.elf
-	llvm-strip testprog.elf -o testprog.self
-	llvm-objcopy -O binary testprog.self testprog.bin
-	rm testprog.self
 
 example.bin: example.elf
 	llvm-strip example.elf -o example.self
@@ -81,3 +68,4 @@ clean:
 	rm -f *.elf
 	rm -f *.bin
 	rm -f *.self
+	$(MAKE) -C lqwm clean

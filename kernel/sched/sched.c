@@ -2,7 +2,6 @@
 #include "../../include/serial/serial.h"
 #include "../../stdlib/stdmem.h"
 #include "../../stdlib/string.h"
-#include "../gui/main.h"
 #include "../layout.h"
 #include "../page/kalloc.h"
 #include "../page/paging.h"
@@ -332,7 +331,6 @@ int TaskSetOwnedAllocation(int pid, void *allocation) {
 void SchedMarkDead(void) {
   if (!ActiveTask || ActiveTask == &RootTask)
     return;
-  RemoveCurrentGUITask(ActiveTask->pid);
   ActiveTask->running = false;
 }
 
@@ -376,14 +374,18 @@ void TaskKill(int pid) {
   }
 }
 
-int SchedGUITaskAppend(uint16_t *pgm) {
-  if (!pgm)
-    return -1;
+int WhichTaskGotAcessToFrameBuffer = 0;
+extern uint32_t FRAME_BUFFER_ADDRESS;
 
-  int pid = ActiveTask->pid;
-  if (AppendGUITask(pid, pgm) != 0)
-    return -1;
-  return pid;
+uint32_t SchedREQFB(void) {
+  if (FRAME_BUFFER_ADDRESS == 0 || WhichTaskGotAcessToFrameBuffer != 0)
+    return 0;
+  if (PagingMapUserPhysicalRange(ActiveTask->address_space,
+                                 FRAME_BUFFER_ADDRESS, FRAME_BUFFER_ADDRESS,
+                                 614400) == -1)
+    return 0;
+  WhichTaskGotAcessToFrameBuffer = ActiveTask->pid;
+  return FRAME_BUFFER_ADDRESS;
 }
 
 /*

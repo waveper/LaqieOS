@@ -1,4 +1,3 @@
-#include "gui/main.h"
 #include "../include/pic.h"
 #include "../include/pit.h"
 #include "../include/serial/serial.h"
@@ -24,6 +23,7 @@ extern uint8_t KernelEnd;
 extern void draw_demo(void);
 
 int MAX_ADDR;
+uint32_t FRAME_BUFFER_ADDRESS;
 
 _Noreturn void PanicImpl(const char *const file, long line,
                          const char *string) {
@@ -41,6 +41,8 @@ _Noreturn void PanicImpl(const char *const file, long line,
 }
 void KMain(uint32_t VIDEO_ADRESS) {
   int floppy_status = -1;
+
+  FRAME_BUFFER_ADDRESS = VIDEO_ADRESS;
 
   SerialInit();
   SVGAInit(VIDEO_ADRESS);
@@ -64,7 +66,7 @@ void KMain(uint32_t VIDEO_ADRESS) {
 
   SerialPrint("\r\nInitialized basic Kernel components\r\n");
   if (VIDEO_ADRESS == 0) {
-    SerialPrint("VBE disabled or failed to initialize\r\n");
+    Panic("VBE disabled or failed to initialize\r\n");
   } else {
     SerialPrint("VBE video address at: 0x");
     SerialPrintHex(VIDEO_ADRESS);
@@ -98,13 +100,10 @@ void KMain(uint32_t VIDEO_ADRESS) {
     Panic("Failed to launch user-space shell");
   }
 
-  if (VIDEO_ADRESS != 0 && ps2_mouse_present) {
-    SerialPrint("Launching kernel native GUI\r\n");
-    execute("FD0:/testprog.bin");
-    GUIInit();
-  }
+  execute("FD0:/lqwm.bin");
 
   KShellCommands("meminfo");
+  KShellCommands("ps");
 
   PicClearIRQMask(0);
   while (1)

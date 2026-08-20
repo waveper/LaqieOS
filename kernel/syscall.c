@@ -1,5 +1,4 @@
 #include "../include/serial/serial.h"
-#include "gui/main.h"
 #include "sched/exec.h"
 #include "sched/sched.h"
 #include <stdint.h>
@@ -13,8 +12,8 @@
 #define SYS_EXEC 4
 #define TASK_EXIT 1
 
-// GUI
-#define GUI_APPEND 5
+// FRAME BUFFER ACCESS
+#define SYS_REQ_FB 5
 
 #define SYSCALL_PATH_MAX 128
 
@@ -63,8 +62,8 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
     frame->eax = (uint32_t)execute(path);
     return frame;
   }
-  case GUI_APPEND:
-    frame->eax = (uint32_t)SchedGUITaskAppend((uint16_t *)frame->ebx);
+  case SYS_REQ_FB:
+    frame->eax = SchedREQFB();
     return frame;
   case SYS_GETC:
     frame->eax = SerialRead();

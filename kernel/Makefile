@@ -10,8 +10,8 @@ LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
 OBJS = $(OBJDIR)/entry.o $(OBJDIR)/interrupts.o $(OBJDIR)/main.o $(OBJDIR)/serial.o $(OBJDIR)/idt.o $(OBJDIR)/shell.o $(OBJDIR)/gdt.o \
 	$(OBJDIR)/bitmap.o $(OBJDIR)/kalloc.o $(OBJDIR)/paging.o $(OBJDIR)/sched.o  $(OBJDIR)/ps2_generic.o $(OBJDIR)/ps2_keyboard.o $(OBJDIR)/ps2_mouse.o \
-	$(OBJDIR)/syscall.o $(OBJDIR)/gui-main.o $(OBJDIR)/floppy_asm.o $(OBJDIR)/floppy.o $(OBJDIR)/fat12.o $(OBJDIR)/apm_asm.o \
-	$(OBJDIR)/apm.o $(OBJDIR)/fs_api.o $(OBJDIR)/vga.o $(OBJDIR)/exec.o $(OBJDIR)/svga.o
+	$(OBJDIR)/syscall.o $(OBJDIR)/floppy_asm.o $(OBJDIR)/floppy.o $(OBJDIR)/fat12.o $(OBJDIR)/apm_asm.o \
+	$(OBJDIR)/apm.o $(OBJDIR)/fs_api.o $(OBJDIR)/exec.o $(OBJDIR)/svga.o
 STDLIBS = $(STDLIB)/stdmem.o $(STDLIB)/string.o
 
 all: kernel.elf
@@ -64,9 +64,6 @@ $(OBJDIR)/ps2_mouse.o: driver/ps2/mouse.c
 $(OBJDIR)/syscall.o: syscall.c
 	$(CC) $(CFLAGS) -c syscall.c -o $@
 
-$(OBJDIR)/gui-main.o: gui/main.c
-	$(CC) $(CFLAGS) -c gui/main.c -o $@
-
 $(OBJDIR)/floppy_asm.o: driver/floppy/floppy.asm
 	$(AS) -f elf32 driver/floppy/floppy.asm -o $@
 
@@ -87,9 +84,6 @@ driver/apm/apm16.bin: driver/apm/apm16.asm
 
 $(OBJDIR)/fs_api.o: fs/api.c
 	$(CC) $(CFLAGS) -c fs/api.c -o $@
-
-$(OBJDIR)/vga.o: driver/vga/vga.c
-	$(CC) $(CFLAGS) -c driver/vga/vga.c -o $@
 
 $(OBJDIR)/exec.o: sched/exec.c
 	$(CC) $(CFLAGS) -c sched/exec.c -o $@

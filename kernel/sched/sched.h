@@ -33,7 +33,7 @@ void SchedMarkDead(void);
 int CopyFromCurrentTaskUser(void *dst, const void *src, uint32_t size);
 int CopyStringFromCurrentTaskUser(char *dst, uint32_t dst_size,
                                   const char *src);
-int SchedGUITaskAppend(uint16_t *pgm);
+uint32_t SchedREQFB();
 InterruptFrame *Schedule(InterruptFrame *frame);
 
 #endif
