@@ -1,13 +1,13 @@
 #define IDT_ENTRIES 256
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "panic.h"
-#include "sched/sched.h"
+#include "../include/serial/serial.h"
 #include "driver/floppy/floppy.h"
 #include "driver/ps2/keyboard.h"
 #include "driver/ps2/mouse.h"
-#include "../include/serial/serial.h"
+#include "panic.h"
+#include "sched/sched.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #define cli() asm("cli");
 #define sti() asm("sti");
@@ -30,28 +30,25 @@ static inline uint32_t read_cr2(void) {
   return val;
 }
 
-typedef struct
-{
-        int code;
-        int a;
-        int b;
-        int c;
-        int d;
+typedef struct {
+  int code;
+  int a;
+  int b;
+  int c;
+  int d;
 } SysCall;
 
-typedef struct idt_entry
-{
-        uint16_t base_low;
-        uint16_t selector;
-        uint8_t always0;
-        uint8_t flags;
-        uint16_t base_high;
+typedef struct idt_entry {
+  uint16_t base_low;
+  uint16_t selector;
+  uint8_t always0;
+  uint8_t flags;
+  uint16_t base_high;
 } __attribute__((packed)) idt_entry;
 
-typedef struct idt_ptr
-{
-        uint16_t limit;
-        uint32_t base;
+typedef struct idt_ptr {
+  uint16_t limit;
+  uint32_t base;
 } __attribute__((packed)) idt_ptr;
 
 // stack arguments
@@ -68,13 +65,9 @@ typedef struct pagefaultstack {
 
 idt_entry idt[256];
 
-void DivideByZeroHandler(void) {
-  Panic("You can't divide by zero, Silly!");
-}
+void DivideByZeroHandler(void) { Panic("You can't divide by zero, Silly!"); }
 
-void UnhandledInterruptHandler(void) {
-  Panic("Unhandled interrupt/exception");
-}
+void UnhandledInterruptHandler(void) { Panic("Unhandled interrupt/exception"); }
 
 void UnhandledErrorCodeHandler(void) {
   Panic("Unhandled exception with error code");
@@ -86,12 +79,9 @@ InterruptFrame *GeneralProtectionFaultHandler(pagefaultstack *regs) {
   int user = regs->cs & 0x3;
 
   if (user == 3) {
-    SerialPrint("Process ID: ");
-    SerialPrintNum(TaskFetchID());
-    SerialPrint(" Was killed for Illegal opcode at program's EIP: 0x"); // Assume it was Illegal opcode
-    SerialPrintHex(regs->eip);
-    SerialPrint("\r\n");
-
+    SerialPrintf("Process ID: %d Was killed for Illegal opcode at program's "
+                 "EIP: 0x%x\r\n",
+                 TaskFetchID(), regs->eip);
     TaskKillCurrent();
     return Schedule(frame);
   } else {
@@ -105,27 +95,24 @@ InterruptFrame *PageFaultHandler(pagefaultstack *regs) {
   uint32_t faulting_address = read_cr2();
   InterruptFrame *frame = (InterruptFrame *)regs;
 
-  int present = !(regs->error_code & 0x1); // Page not present vs protection violation
+  int present =
+      !(regs->error_code & 0x1); // Page not present vs protection violation
   int write = regs->error_code & 0x2; // Write operation vs read operation
-  int user = regs->error_code & 0x4;    // Fault occurred in user mode vs supervisor mode
-  int reserved = regs->error_code & 0x8;    // Overwritten CPU reserved bits
-  int id = regs->error_code & 0x10;   // Instruction fetch vs data access
+  int user =
+      regs->error_code & 0x4; // Fault occurred in user mode vs supervisor mode
+  int reserved = regs->error_code & 0x8; // Overwritten CPU reserved bits
+  int id = regs->error_code & 0x10;      // Instruction fetch vs data access
   (void)reserved;
   (void)id;
-  
+
   if (user) {
-    SerialPrint("Process ID: ");
-    SerialPrintNum(TaskFetchID());
-    SerialPrint(" Was killed for ");
+    SerialPrintf("Process ID: %d Was killed for ", TaskFetchID());
     SerialPrint(present ? "non-present page" : "protection violation");
     SerialPrint(", operation: ");
     SerialPrint(write ? "Writing" : "Reading");
-    SerialPrint(" (Segmentation Fault)\r\n");
-    SerialPrint("Accessed Address: 0x");
-    SerialPrintHex(faulting_address);
-    SerialPrint(", EIP: 0x");
-    SerialPrintHex(regs->eip);
-    SerialPrint("\r\n");
+    SerialPrintf(
+        " (Segmentation Fault)\r\nAccessed Address: 0x%x, EIP: 0x%x\r\n",
+        faulting_address, regs->eip);
 
     TaskKillCurrent();
     return Schedule(frame);

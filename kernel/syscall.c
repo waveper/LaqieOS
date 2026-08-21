@@ -90,14 +90,32 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
     frame->eax = (uint32_t)SchedUserMMap(frame->ebx, frame->ecx, frame->edx);
     return frame;
   case SYS_FILESIZE:
+    {
+      char path[SYSCALL_PATH_MAX];
+      if (CopyStringFromCurrentTaskUser(path, sizeof(path),
+                                        (const char *)frame->ebx) != 0) {
+        frame->eax = -1;
+        return frame;
+      }
+      frame->eax = FileSize(path);
+      return frame;
+    }
+  case SYS_WRITEFILE:
+    frame->eax = -1;
+    return frame;
+  case SYS_READFILE:
+    frame->eax = -1;
+    return frame;
+  case SYS_DELFILE: {
     char path[SYSCALL_PATH_MAX];
     if (CopyStringFromCurrentTaskUser(path, sizeof(path),
                                       (const char *)frame->ebx) != 0) {
       frame->eax = -1;
       return frame;
     }
-    frame->eax = FileSize(path);
+    frame->eax = DeleteFile(path);
     return frame;
+  }
   }
 
   frame->eax = (uint32_t)-1;

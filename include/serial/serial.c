@@ -1,52 +1,41 @@
 #include "serial.h"
+#include "../../kernel/page/bitmap.h"
+#include "../../stdlib/string.h"
+#include <stdarg.h>
 
-static void IntegerToHexadecimal(int value, char *buffer) {
-  static const char hex_digits[] = "0123456789abcdef";
-  for (int i = 7; i >= 0; i--) {
-    buffer[i] = hex_digits[value & 0xF];
-    value >>= 4;
-  }
-  buffer[8] = '\0';
+void SerialInit(void) {
+  outb(SERIAL_IER, 0x00); // Disable all interrupts
+  outb(SERIAL_LCR, 0x80); // Set DLAB (Data Access Bit) to 1
+  outb(SERIAL_PORT,
+       0x03); // Set LSB of baud rate divisor (e.g., 0x03 for 115200 baud)
+  outb(SERIAL_IER,
+       0x00); // Disable interrupts again (no need to enable them yet)
+  outb(SERIAL_LCR, 0x03); // LCR = 0x03 (8 bits, no parity, 1 stop bit)
+  outb(SERIAL_PORT + 2,
+       0xC7);             // FIFO Control Register: Enable FIFO, clear RX/TX
+  outb(SERIAL_MCR, 0x0B); // Enable DTR and RTS for flow control
 }
 
-void SerialInit(void)
-{
-        outb(SERIAL_IER, 0x00);  // Disable all interrupts
-        outb(SERIAL_LCR, 0x80);  // Set DLAB (Data Access Bit) to 1
-        outb(SERIAL_PORT, 0x03);  // Set LSB of baud rate divisor (e.g., 0x03 for 115200 baud)
-        outb(SERIAL_IER, 0x00);  // Disable interrupts again (no need to enable them yet)
-        outb(SERIAL_LCR, 0x03);  // LCR = 0x03 (8 bits, no parity, 1 stop bit)
-        outb(SERIAL_PORT + 2, 0xC7);  // FIFO Control Register: Enable FIFO, clear RX/TX
-        outb(SERIAL_MCR, 0x0B);  // Enable DTR and RTS for flow control
+void SerialWaitForTransmit(void) {
+  while ((inb(SERIAL_LSR) & 0x20) == 0)
+    ;
 }
 
-void SerialWaitForTransmit(void)
-{
-        while ((inb(SERIAL_LSR) & 0x20) == 0)
-                ;
+void SerialWaitForInput(void) {
+  while (!SerialCanRead())
+    ;
 }
 
-void SerialWaitForInput(void)
-{
-        while (!SerialCanRead())
-                ;
+void SerialPut(char c) {
+  SerialWaitForTransmit();
+  outb(SERIAL_PORT, c);
 }
 
-void SerialPut(char c)
-{
-        SerialWaitForTransmit();
-        outb(SERIAL_PORT, c);
-}
+bool SerialCanRead(void) { return inb(SERIAL_PORT + 5) & 0x01; }
 
-bool SerialCanRead(void)
-{
-        return inb(SERIAL_PORT + 5) & 0x01;
-}
-
-char SerialRead(void)
-{
-        SerialWaitForInput();
-        return inb(SERIAL_PORT);
+char SerialRead(void) {
+  SerialWaitForInput();
+  return inb(SERIAL_PORT);
 }
 
 // Basic form of printf
@@ -55,14 +44,6 @@ void SerialPrint(const char *string) {
   while (string[i] != '\0') {
     SerialPut(string[i]);
     i++;
-  }
-}
-
-void SerialPrintHex(int value) {
-  char hex_buffer[9];
-  IntegerToHexadecimal(value, hex_buffer);
-  for (int i = 0; i < 8; i++) {
-    SerialPut(hex_buffer[i]);
   }
 }
 
@@ -75,13 +56,174 @@ void SerialPrintPointerAddress(uintptr_t address) {
   }
 }
 
-void SerialPrintNum(int num) {
-  // only handle positive number
-  // Recursive case: If more than one digit, process the leading digits first
-  if (num / 10) {
-    SerialPrintNum(num / 10);
+// Helper function to reverse a string
+static void reverse(char *str, int length) {
+  int start = 0;
+  int end = length - 1;
+  while (start < end) {
+    char temp = str[start];
+    str[start] = str[end];
+    str[end] = temp;
+    start++;
+    end--;
+  }
+}
+
+// Custom implementation of itoa
+static char *custom_itoa(int value, char *str, int base) {
+  unsigned int uvalue;
+  int i = 0;
+  int isNegative = 0;
+
+  if (base < 2 || base > 36) {
+    str[0] = '\0';
+    return str;
   }
 
-  // ASCII manipulation stuff
-  SerialPut((num % 10) + '0');
+  if (value == 0) {
+    str[i++] = '0';
+    str[i] = '\0';
+    return str;
+  }
+
+  if (value < 0 && base == 10) {
+    isNegative = 1;
+    uvalue = (unsigned int)(-(value + 1)) + 1;
+  } else {
+    uvalue = (unsigned int)value;
+  }
+
+  while (uvalue != 0) {
+    unsigned int rem = uvalue % (unsigned int)base;
+    str[i++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
+    uvalue /= (unsigned int)base;
+  }
+
+  if (isNegative) {
+    str[i++] = '-';
+  }
+
+  str[i] = '\0';
+  reverse(str, i);
+  return str;
+}
+
+static int vsnprintf(char *str, uint32_t size, const char *format,
+                     va_list args) {
+  if (str == NULL || size == 0) {
+    return 0;
+  }
+
+  size_t written = 0;
+
+  for (size_t i = 0; format[i] != '\0'; i++) {
+    // If we are out of space (leaving room for '\0'), stop writing but keep
+    // counting to return the correct standard total length.
+    if (format[i] == '%') {
+      i++;
+      if (format[i] == '\0') {
+        if (written < size - 1) {
+          str[written] = '%';
+        }
+        written++;
+        break;
+      }
+
+      char pad = ' ';
+      int width = 0;
+
+      if (format[i] == '0') {
+        pad = '0';
+        i++;
+      }
+
+      while (format[i] >= '0' && format[i] <= '9') {
+        width = width * 10 + (format[i] - '0');
+        i++;
+      }
+
+      char *arg_str = NULL;
+      char num_buf[34];
+      char char_buf[2];
+
+      if (format[i] == 'd') {
+        int value = va_arg(args, int);
+        arg_str = custom_itoa(value, num_buf, 10);
+      } else if (format[i] == 'x') {
+        uint32_t value = va_arg(args, uint32_t);
+        arg_str = custom_itoa((int)value, num_buf, 16);
+      } else if (format[i] == 's') {
+        arg_str = va_arg(args, char *);
+        if (arg_str == NULL) {
+          arg_str = "(null)";
+        }
+      } else if (format[i] == 'c') {
+        char c = (char)va_arg(args, int);
+        char_buf[0] = c;
+        char_buf[1] = '\0';
+        arg_str = char_buf;
+      } else if (format[i] == '%') {
+        if (written < size - 1) {
+          str[written] = '%';
+        }
+        written++;
+        continue;
+      } else {
+        if (written < size - 1) {
+          str[written] = '%';
+        }
+        written++;
+        if (written < size - 1) {
+          str[written] = format[i];
+        }
+        written++;
+        continue;
+      }
+
+      if (arg_str != NULL) {
+        int len = strlen(arg_str);
+
+        // Process padding width
+        while (len < width) {
+          if (written < size - 1) {
+            str[written] = pad;
+          }
+          written++;
+          width--;
+        }
+
+        // Copy token contents
+        while (*arg_str) {
+          if (written < size - 1) {
+            str[written] = *arg_str;
+          }
+          written++;
+          arg_str++;
+        }
+      }
+    } else {
+      if (written < size - 1) {
+        str[written] = format[i];
+      }
+      written++;
+    }
+  }
+
+  // Always null-terminate safely within limits
+  if (written < size) {
+    str[written] = '\0';
+  } else {
+    str[size - 1] = '\0';
+  }
+
+  return (int)written;
+}
+
+void SerialPrintf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  char buffer[4096];
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+  SerialPrint(buffer);
 }

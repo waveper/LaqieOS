@@ -5,8 +5,6 @@
 #include "driver/ps2/mouse.h"
 #include "layout.h"
 #include "page/kalloc.h"
-#include "panic.h"
-#include "sched/exec.h"
 #include "sched/sched.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -91,20 +89,14 @@ void KShellCommands(const char *string) {
   }
 
   if (strcmp(argv[0], "meminfo") == 0) {
-    SerialPrint("Total RAM detected: ");
-    SerialPrintNum((MAX_ADDR + 0x100000) / 1024);
-    SerialPrint(" KB\r\n");
-    SerialPrint("Usable RAM detected: ");
-    SerialPrintNum(MAX_ADDR / 1024);
-    SerialPrint(" KB\r\n");
+    SerialPrintf("Total RAM detected: %d KB\r\nUsable RAM detected: %d KB\r\n",
+                 (MAX_ADDR + 0x100000) / 1024, MAX_ADDR / 1024);
     SerialPrint("Page Usage: ");
     uint32_t UsedKB =
         (MAX_ADDR / 1024) - ((CountAvailablePage() * PAGE_SIZE) / 1024);
-    SerialPrintNum(UsedKB);
-    SerialPrint(" KB\r\n");
-    SerialPrint("Available RAM: ");
-    SerialPrintNum((CountAvailablePage() * PAGE_SIZE) / 1024);
-    SerialPrint(" KB\r\n");
+    SerialPrintf("%d KB\r\n", UsedKB);
+    SerialPrintf("Available RAM: %d KB\r\n",
+                 (CountAvailablePage() * PAGE_SIZE) / 1024);
   } else if (strcmp(argv[0], "ps") == 0) {
     ListTask();
   } else if (strcmp(argv[0], "shutdown") == 0) {

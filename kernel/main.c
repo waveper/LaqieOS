@@ -27,14 +27,7 @@ uint32_t FRAME_BUFFER_ADDRESS;
 _Noreturn void PanicImpl(const char *const file, long line,
                          const char *string) {
   cli();
-  SerialPrint("\r\n KERNEL PANIC: ");
-  SerialPrint(string);
-  SerialPrint("\r\n");
-  SerialPrint("At ");
-  SerialPrint(file);
-  SerialPut(':');
-  SerialPrintNum((int)line);
-  SerialPrint("\r\n");
+  SerialPrintf("\r\n KERNEL PANIC: %s\r\nAt %s:%d\r\n", string, file, line);
   while (1)
     ;
 }
@@ -67,10 +60,9 @@ void KMain(uint32_t VIDEO_ADRESS) {
   if (VIDEO_ADRESS == 0) {
     Panic("VBE disabled or failed to initialize\r\n");
   } else {
-    SerialPrint("VBE video address at: 0x");
-    SerialPrintHex(VIDEO_ADRESS);
-    SerialPrint("\r\n");
+    SerialPrintf("VBE video address at: 0x%x\r\n", VIDEO_ADRESS);
   }
+  SerialPrintf("KernelEnd address at: 0x%x\r\n", &KernelEnd);
 
   int ps2_keyboard_present = PS2KeyboardInit();
   int ps2_mouse_present = PS2MouseInit();

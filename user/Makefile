@@ -68,7 +68,7 @@ ta.o: test-alloc.c
 	$(CC) $(CFLAGS) -c test-alloc.c -o ta.o
 
 ta.elf: ta.o
-	$(LD) $(LDFLAGS) crt.o ta.o -o ta.elf
+	$(LD) $(LDFLAGS) crt.o ta.o stdlib.o string.o -o ta.elf
 
 ta.bin: ta.elf
 	llvm-strip ta.elf -o ta.self

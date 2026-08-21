@@ -136,8 +136,8 @@ static bool TaskOwnsMallocRange(Task *task, uintptr_t addr, uint32_t size) {
     return false;
 
   uint32_t start = (uint32_t)addr & ~(uint32_t)(PAGE_SIZE - 1);
-  uint32_t end = ((uint32_t)addr + size + PAGE_SIZE - 1) &
-                 ~(uint32_t)(PAGE_SIZE - 1);
+  uint32_t end =
+      ((uint32_t)addr + size + PAGE_SIZE - 1) & ~(uint32_t)(PAGE_SIZE - 1);
 
   for (uint32_t page = start; page < end; page += PAGE_SIZE) {
     bool covered = false;
@@ -538,9 +538,8 @@ uint32_t SchedTaskMalloc(uint32_t size) {
   uint32_t ptr = (uint32_t)KAlloc(size);
   if (!ptr)
     return 0;
-  MallocAllocationData_t *tracked =
-      AppendTaskMallocAllocationData(ActiveTask->malloc_allocation_data, ptr,
-                                     size);
+  MallocAllocationData_t *tracked = AppendTaskMallocAllocationData(
+      ActiveTask->malloc_allocation_data, ptr, size);
   if (!tracked) {
     KFree((void *)ptr);
     return 0;
@@ -611,10 +610,7 @@ bool IsTaskActive(int pid) {
 void ListTask(void) {
   IterateSchedule(i) {
     if (current) {
-      SerialPrint(current->name);
-      SerialPut(':');
-      SerialPrintNum(current->pid);
-      SerialPut(' ');
+      SerialPrintf("%s:%d ", current->name, current->pid);
     }
   }
   SerialPrint("\r\n");

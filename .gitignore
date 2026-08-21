@@ -12,3 +12,5 @@ user/*.bin
 user/lqwm/*.o
 user/lqwm/*.elf
 user/lqwm/*.bin
+.cache
+compile_commands.json

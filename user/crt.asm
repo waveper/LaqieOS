@@ -5,8 +5,8 @@ global prints
 global getchar
 global putchar
 global exec
-global kalloc
-global kfree
+global malloc
+global free
 global mmap
 
 _start:
@@ -66,7 +66,7 @@ putchar:
   pop ebp
   ret
 
-kalloc:
+malloc:
   push ebp
   mov ebp, esp
   mov eax, 7
@@ -76,7 +76,7 @@ kalloc:
   pop ebp
   ret
 
-kfree:
+free:
   push ebp
   mov ebp, esp
   mov eax, 8
