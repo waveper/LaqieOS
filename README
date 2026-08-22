@@ -3,14 +3,6 @@
 - an monolithic kernel that only target i386 range instruction
 - build with LLVM toolchain and NASM as an assembler
 
--- Coding Style
-4 "Use", 1 "Keep". Style rules:
-  - Use 2-space indentation with K&R style for C functions
-  - Use local helper libraries in `stdlib/`
-  - Use `PascalCase` for general C code
-  - Use `snake_case` or descriptive lowercase labels in assembly
-  - Keep file names lowercase and grouped by subsystem
-
 -- System requirement??
   - likely should use pentium for performance because I don't bless my code with optimization that much.. but i486 is valid
   - the required memory is about 6 Megabytes

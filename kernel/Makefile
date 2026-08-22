@@ -11,7 +11,7 @@ LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 OBJS = $(OBJDIR)/entry.o $(OBJDIR)/interrupts.o $(OBJDIR)/main.o $(OBJDIR)/serial.o $(OBJDIR)/idt.o $(OBJDIR)/shell.o $(OBJDIR)/gdt.o \
 	$(OBJDIR)/bitmap.o $(OBJDIR)/kalloc.o $(OBJDIR)/paging.o $(OBJDIR)/sched.o  $(OBJDIR)/ps2_generic.o $(OBJDIR)/ps2_keyboard.o $(OBJDIR)/ps2_mouse.o \
 	$(OBJDIR)/syscall.o $(OBJDIR)/floppy_asm.o $(OBJDIR)/floppy.o $(OBJDIR)/fat12.o $(OBJDIR)/apm_asm.o \
-	$(OBJDIR)/apm.o $(OBJDIR)/fs_api.o $(OBJDIR)/exec.o $(OBJDIR)/svga.o
+	$(OBJDIR)/apm.o $(OBJDIR)/fs_api.o $(OBJDIR)/exec.o $(OBJDIR)/svga.o $(OBJDIR)/mps.o
 STDLIBS = $(STDLIB)/stdmem.o $(STDLIB)/string.o
 
 all: kernel.elf
@@ -90,5 +90,8 @@ $(OBJDIR)/exec.o: sched/exec.c
 
 $(OBJDIR)/svga.o: driver/svga/svga.c
 	$(CC) $(CFLAGS) -c driver/svga/svga.c -o $@
+
+$(OBJDIR)/mps.o: mps.c
+	$(CC) $(CFLAGS) -c mps.c -o $@
 
 .PHONY: all

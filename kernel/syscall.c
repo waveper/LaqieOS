@@ -12,6 +12,7 @@
 // tasking
 #define SYS_EXEC 4
 #define TASK_EXIT 1
+#define SYS_YIELD 15
 
 // FRAME BUFFER ACCESS
 #define SYS_REQ_FB 5
@@ -27,6 +28,9 @@
 #define SYS_READFILE 12
 #define SYS_DELFILE 13
 
+// Mouse Pointer Access
+#define SYS_REQ_MOUSE 14
+
 #define SYSCALL_PATH_MAX 128
 
 InterruptFrame *SyscallHandler(InterruptFrame *frame) {
@@ -36,6 +40,9 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
   switch (frame->eax) {
   case TASK_EXIT:
     SchedMarkDead();
+    return Schedule(frame);
+  case SYS_YIELD:
+    frame->eax = 0;
     return Schedule(frame);
   case SYS_PUTC:
     SerialPut(frame->ebx);
@@ -89,22 +96,21 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
   case SYS_USERMAP:
     frame->eax = (uint32_t)SchedUserMMap(frame->ebx, frame->ecx, frame->edx);
     return frame;
-  case SYS_FILESIZE:
-    {
-      char path[SYSCALL_PATH_MAX];
-      if (CopyStringFromCurrentTaskUser(path, sizeof(path),
-                                        (const char *)frame->ebx) != 0) {
-        frame->eax = -1;
-        return frame;
-      }
-      frame->eax = FileSize(path);
+  case SYS_FILESIZE: {
+    char path[SYSCALL_PATH_MAX];
+    if (CopyStringFromCurrentTaskUser(path, sizeof(path),
+                                      (const char *)frame->ebx) != 0) {
+      frame->eax = -1;
       return frame;
     }
+    frame->eax = FileSize(path);
+    return frame;
+  }
   case SYS_WRITEFILE:
-    frame->eax = -1;
+    frame->eax = -1; // TODO: Implement
     return frame;
   case SYS_READFILE:
-    frame->eax = -1;
+    frame->eax = -1; // TODO: Implement
     return frame;
   case SYS_DELFILE: {
     char path[SYSCALL_PATH_MAX];
@@ -116,6 +122,9 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
     frame->eax = DeleteFile(path);
     return frame;
   }
+  case SYS_REQ_MOUSE:
+    frame->eax = SchedREQMouse();
+    return frame;
   }
 
   frame->eax = (uint32_t)-1;

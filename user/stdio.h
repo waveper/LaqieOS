@@ -11,5 +11,6 @@ char getchar(void);
 void *malloc(uint32_t size);
 void free(void *ptr);
 int mmap(uint32_t phys, uint32_t virt, uint32_t size);
+void yield(void);
 
 #endif

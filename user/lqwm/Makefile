@@ -10,14 +10,17 @@ all: lqwm.elf
 	llvm-objcopy -O binary lqwm.self lqwm.bin
 	rm lqwm.self
 
-fb-req.o: fb-req.asm
-	$(AS) -f elf32 fb-req.asm -o $@
+essential-req.o: essential-req.asm
+	$(AS) -f elf32 essential-req.asm -o $@
 
 main.o: main.c
 	$(CC) $(CFLAGS) -c main.c -o main.o
 
-lqwm.elf: main.o fb-req.o
-	$(LD) $(LDFLAGS) ../crt.o main.o fb-req.o ../stdlib.o ../string.o -o lqwm.elf
+fb.o: fb.c
+	$(CC) $(CFLAGS) -c fb.c -o fb.o
+
+lqwm.elf: main.o essential-req.o fb.o
+	$(LD) $(LDFLAGS) ../crt.o main.o essential-req.o fb.o ../stdlib.o ../string.o -o lqwm.elf
 
 .PHONY: all clean
 

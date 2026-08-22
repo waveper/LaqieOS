@@ -8,6 +8,7 @@ global exec
 global malloc
 global free
 global mmap
+global yield
 
 _start:
   jmp pre_main
@@ -48,12 +49,8 @@ exec:
   ret
 
 getchar:
-  push ebp
-  mov ebp, esp
   mov eax, 6
   int 0x80
-  mov esp, ebp
-  pop ebp
   ret
 
 putchar:
@@ -96,4 +93,9 @@ mmap:
   int 0x80
   mov esp, ebp
   pop ebp
+  ret
+
+yield:
+  mov eax, 15
+  int 0x80
   ret

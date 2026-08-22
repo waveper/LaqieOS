@@ -14,6 +14,8 @@
 #define USER_DATA_SELECTOR 0x23
 
 extern void TSSSetKernelStack(uint32_t esp0);
+extern uint32_t MPSInit(void);
+extern void MPSShutdown(void);
 
 // A dynamic arrays of each tasks malloc allocation datas
 typedef struct MallocAllocationData_t {
@@ -42,6 +44,7 @@ Task RootTask, *ActiveTask;
 static Task *TaskTail = NULL;
 
 static int WhichTaskGotAcessToFrameBuffer = 0;
+static int WhichTaskGotAcessToMouse = 0;
 
 #define IterateSchedule(_)                                                     \
   int _ = 0;                                                                   \
@@ -202,6 +205,10 @@ static void DestroyTask(Task *task) {
     return;
   if (WhichTaskGotAcessToFrameBuffer == task->pid) {
     WhichTaskGotAcessToFrameBuffer = 0;
+  }
+  if (WhichTaskGotAcessToMouse == task->pid) {
+    MPSShutdown();
+    WhichTaskGotAcessToMouse = 0;
   }
   FreeTaskMallocAllocations(task);
   if (task->owned_allocation) {
@@ -502,6 +509,15 @@ void TaskKillCurrent(void) {
 
 int TaskFetchID(void) { return ActiveTask ? ActiveTask->pid : -1; }
 
+void TaskKillDeferred(int pid) {
+  IterateSchedule(_) {
+    if (current && current->pid == pid) {
+      current->running = false;
+      return;
+    }
+  }
+}
+
 /*
  * Stops a task by PID. Killing the currently running task halts immediately to
  * avoid returning into a dead context.
@@ -528,6 +544,21 @@ uint32_t SchedREQFB(void) {
     return 0;
   WhichTaskGotAcessToFrameBuffer = ActiveTask->pid;
   return FRAME_BUFFER_ADDRESS;
+}
+
+uint32_t SchedREQMouse(void) {
+  if (WhichTaskGotAcessToMouse != 0)
+    return 0;
+  uint32_t MPSDataPtr = MPSInit();
+  if (!MPSDataPtr)
+    return 0;
+  if (PagingMapUserPhysicalRange(ActiveTask->address_space, MPSDataPtr,
+                                 MPSDataPtr, 4096, 1)) {
+    MPSShutdown();
+    return 0;
+  }
+  WhichTaskGotAcessToMouse = ActiveTask->pid;
+  return MPSDataPtr;
 }
 
 // Allocates memory for the active (user) task, maps it into its address
