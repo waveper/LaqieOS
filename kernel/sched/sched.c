@@ -17,12 +17,23 @@ extern void TSSSetKernelStack(uint32_t esp0);
 extern uint32_t MPSInit(void);
 extern void MPSShutdown(void);
 
-// A dynamic arrays of each tasks malloc allocation datas
+// A dynamic arrays of each tasks malloc allocation datas. `pointers` holds the
+// user virtual address returned to the program; `phys` holds the backing
+// physical page base so it can be freed; `size` is the allocation size.
 typedef struct MallocAllocationData_t {
   uint32_t *size;
   uint32_t *pointers;
+  uint32_t *phys;
   uint32_t array_size;
 } MallocAllocationData_t;
+
+typedef struct TaskStates {
+  struct {
+    uint8_t waitpid : 1;
+    uint8_t async_wait : 1;
+  } __attribute__((packed));
+  int waitpid_target_pid;
+} TaskStates;
 
 typedef struct Task {
   uint8_t stack[8192];
@@ -32,10 +43,12 @@ typedef struct Task {
   void *user_stack_allocation;
   MallocAllocationData_t *malloc_allocation_data;
   AddressSpace *address_space;
+  uint32_t heap_current;
   int tick;
   int pid;
   struct Task *next;
   bool running;
+  TaskStates states;
   char *name;
   int ring0;
 } Task;
@@ -51,20 +64,24 @@ static int WhichTaskGotAcessToMouse = 0;
   for (Task *current = &RootTask; current != NULL; current = current->next, ++_)
 
 /*
- * Records a kernel heap allocation so the owning task can free and revoke it
- * later. Grows the backing arrays when every slot is occupied. Returns the
- * (possibly new) descriptor, or NULL on allocation failure.
+ * Records a user heap allocation so the owning task can free and revoke it
+ * later. `virt` is the user virtual address returned to the program, `phys` is
+ * the backing physical page base, and `size` is the allocation size. Grows the
+ * backing arrays when every slot is occupied. Returns the (possibly new)
+ * descriptor, or NULL on allocation failure.
  */
-static MallocAllocationData_t *
-AppendTaskMallocAllocationData(MallocAllocationData_t *MAD, uint32_t address,
-                               uint32_t size) {
+static MallocAllocationData_t *AppendTaskMallocAllocationData(
+    MallocAllocationData_t *MAD, uint32_t virt, uint32_t phys, uint32_t size) {
   if (!MAD) {
     MAD = KAlloc(sizeof(MallocAllocationData_t));
     if (!MAD)
       return NULL;
     MAD->size = KAlloc(sizeof(uint32_t));
     MAD->pointers = KAlloc(sizeof(uint32_t));
-    if (!MAD->size || !MAD->pointers) {
+    MAD->phys = KAlloc(sizeof(uint32_t));
+    if (!MAD->size || !MAD->pointers || !MAD->phys) {
+      if (MAD->phys)
+        KFree(MAD->phys);
       if (MAD->pointers)
         KFree(MAD->pointers);
       if (MAD->size)
@@ -75,11 +92,17 @@ AppendTaskMallocAllocationData(MallocAllocationData_t *MAD, uint32_t address,
     MAD->array_size = 1;
     memset(MAD->size, 0, sizeof(uint32_t));
     memset(MAD->pointers, 0, sizeof(uint32_t));
+    memset(MAD->phys, 0, sizeof(uint32_t));
+    MAD->pointers[0] = virt;
+    MAD->phys[0] = phys;
+    MAD->size[0] = size;
+    return MAD;
   }
 
   for (uint32_t i = 0; i < MAD->array_size; i++) {
     if (MAD->size[i] == 0 && MAD->pointers[i] == 0) {
-      MAD->pointers[i] = address;
+      MAD->pointers[i] = virt;
+      MAD->phys[i] = phys;
       MAD->size[i] = size;
       return MAD;
     }
@@ -91,7 +114,10 @@ AppendTaskMallocAllocationData(MallocAllocationData_t *MAD, uint32_t address,
     return NULL;
   MAD_NEW->size = KAlloc(new_size * sizeof(uint32_t));
   MAD_NEW->pointers = KAlloc(new_size * sizeof(uint32_t));
-  if (!MAD_NEW->size || !MAD_NEW->pointers) {
+  MAD_NEW->phys = KAlloc(new_size * sizeof(uint32_t));
+  if (!MAD_NEW->size || !MAD_NEW->pointers || !MAD_NEW->phys) {
+    if (MAD_NEW->phys)
+      KFree(MAD_NEW->phys);
     if (MAD_NEW->pointers)
       KFree(MAD_NEW->pointers);
     if (MAD_NEW->size)
@@ -101,14 +127,19 @@ AppendTaskMallocAllocationData(MallocAllocationData_t *MAD, uint32_t address,
   }
   memset(MAD_NEW->size, 0, new_size * sizeof(uint32_t));
   memset(MAD_NEW->pointers, 0, new_size * sizeof(uint32_t));
+  memset(MAD_NEW->phys, 0, new_size * sizeof(uint32_t));
   memcpy(MAD_NEW->size, MAD->size, MAD->array_size * sizeof(uint32_t));
-  memcpy(MAD_NEW->pointers, MAD->pointers, MAD->array_size * sizeof(uint32_t));
+  memcpy(MAD_NEW->pointers, MAD->pointers,
+         MAD->array_size * sizeof(uint32_t));
+  memcpy(MAD_NEW->phys, MAD->phys, MAD->array_size * sizeof(uint32_t));
 
   MAD_NEW->array_size = new_size;
-  MAD_NEW->pointers[MAD->array_size] = address;
+  MAD_NEW->pointers[MAD->array_size] = virt;
+  MAD_NEW->phys[MAD->array_size] = phys;
   MAD_NEW->size[MAD->array_size] = size;
 
   KFree(MAD->pointers);
+  KFree(MAD->phys);
   KFree(MAD->size);
   KFree(MAD);
   return MAD_NEW;
@@ -130,7 +161,8 @@ static void RemoveTaskMallocAllocation(Task *task, uint32_t ptr) {
   }
 }
 
-/* True if every page in [addr, addr+size) falls inside a tracked allocation. */
+/* True if every page in [addr, addr+size) falls inside a tracked allocation's
+ * backing physical range. Guards against addr+size wrap-around. */
 static bool TaskOwnsMallocRange(Task *task, uintptr_t addr, uint32_t size) {
   if (!task || task->ring0)
     return false;
@@ -139,16 +171,21 @@ static bool TaskOwnsMallocRange(Task *task, uintptr_t addr, uint32_t size) {
     return false;
 
   uint32_t start = (uint32_t)addr & ~(uint32_t)(PAGE_SIZE - 1);
-  uint32_t end =
-      ((uint32_t)addr + size + PAGE_SIZE - 1) & ~(uint32_t)(PAGE_SIZE - 1);
+  if (size == 0)
+    return true;
+  uintptr_t end = (uintptr_t)addr + (uintptr_t)size;
+  if (end < (uintptr_t)addr)
+    return false;
+  uintptr_t aligned_end =
+      ((end + PAGE_SIZE - 1) & ~(uintptr_t)(PAGE_SIZE - 1));
 
-  for (uint32_t page = start; page < end; page += PAGE_SIZE) {
+  for (uintptr_t page = start; page < aligned_end; page += PAGE_SIZE) {
     bool covered = false;
     for (uint32_t i = 0; i < MAD->array_size; i++) {
       if (MAD->pointers[i] == 0 || MAD->size[i] == 0)
         continue;
-      uint32_t alloc_start = MAD->pointers[i];
-      uint32_t alloc_end = MAD->pointers[i] + MAD->size[i];
+      uintptr_t alloc_start = MAD->phys[i];
+      uintptr_t alloc_end = MAD->phys[i] + (uintptr_t)MAD->size[i];
       if (page >= alloc_start && page < alloc_end) {
         covered = true;
         break;
@@ -170,10 +207,11 @@ static void FreeTaskMallocAllocations(Task *task) {
 
   for (uint32_t i = 0; i < MAD->array_size; i++) {
     if (MAD->pointers[i] != 0 && MAD->size[i] != 0) {
-      KFree((void *)MAD->pointers[i]);
+      KFree((void *)MAD->phys[i]);
     }
   }
   KFree(MAD->pointers);
+  KFree(MAD->phys);
   KFree(MAD->size);
   KFree(MAD);
   task->malloc_allocation_data = NULL;
@@ -252,6 +290,10 @@ static bool TaskOwnsUserRange(Task *task, uintptr_t addr, uint32_t size) {
     return true;
   }
 
+  if (RangeContains(USER_HEAP_BASE, USER_HEAP_END, addr, size)) {
+    return true;
+  }
+
   if (task->address_space &&
       task->address_space != PagingKernelAddressSpace()) {
     return RangeContains(USER_STACK_BASE, USER_STACK_TOP, addr, size);
@@ -262,12 +304,13 @@ static bool TaskOwnsUserRange(Task *task, uintptr_t addr, uint32_t size) {
   }
 
   return RangeContains((uintptr_t)task->user_stack_allocation,
-                       (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE,
-                       addr, size);
+                        (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE,
+                        addr, size);
 }
 
 static bool IsFixedUserRange(uintptr_t addr, uint32_t size) {
   return RangeContains(USER_EXEC_LOAD_ADDR, USER_EXEC_END, addr, size) ||
+         RangeContains(USER_HEAP_BASE, USER_HEAP_END, addr, size) ||
          RangeContains(USER_STACK_BASE, USER_STACK_TOP, addr, size);
 }
 
@@ -343,6 +386,7 @@ Task *CreateTask(char *name, void (*start)(void)) {
   new->owned_allocation = NULL;
   new->user_stack_allocation = NULL;
   new->address_space = PagingKernelAddressSpace();
+  new->heap_current = USER_HEAP_BASE;
   new->running = false;
   new->pid = pid++;
   return new;
@@ -561,28 +605,44 @@ uint32_t SchedREQMouse(void) {
   return MPSDataPtr;
 }
 
-// Allocates memory for the active (user) task, maps it into its address
-// space, and tracks it so it can be freed and revoked on exit.
+// Allocates memory for the active (user) task. Fresh physical pages are mapped
+// into the task's address space at a dedicated user virtual address inside the
+// heap region and that virtual address is returned. The backing physical pages
+// are never exposed to the user, so a task cannot reach kernel memory through
+// malloc/free.
 uint32_t SchedTaskMalloc(uint32_t size) {
   if (!ActiveTask || !size)
     return 0;
-  uint32_t ptr = (uint32_t)KAlloc(size);
-  if (!ptr)
+
+  uint32_t bytes = (size + PAGE_SIZE - 1) & ~(uint32_t)(PAGE_SIZE - 1);
+
+  uint32_t phys = (uint32_t)KAlloc(bytes);
+  if (!phys)
     return 0;
+
+  uint32_t virt = ActiveTask->heap_current;
+  if (virt < USER_HEAP_BASE || virt + bytes > USER_HEAP_END ||
+      virt + bytes < virt) {
+    KFree((void *)phys);
+    return 0;
+  }
+
+  if (PagingMapUserPhysicalRange(ActiveTask->address_space, virt, phys, bytes,
+                                  1) != 0) {
+    KFree((void *)phys);
+    return 0;
+  }
+
   MallocAllocationData_t *tracked = AppendTaskMallocAllocationData(
-      ActiveTask->malloc_allocation_data, ptr, size);
+      ActiveTask->malloc_allocation_data, virt, phys, bytes);
   if (!tracked) {
-    KFree((void *)ptr);
+    PagingUnmapUserRange(ActiveTask->address_space, virt, bytes);
+    KFree((void *)phys);
     return 0;
   }
   ActiveTask->malloc_allocation_data = tracked;
-  if (PagingMapUserPhysicalRange(ActiveTask->address_space, ptr, ptr, size,
-                                 1) != 0) {
-    RemoveTaskMallocAllocation(ActiveTask, ptr);
-    KFree((void *)ptr);
-    return 0;
-  }
-  return ptr;
+  ActiveTask->heap_current += bytes;
+  return virt;
 }
 
 // Frees a tracked allocation owned by the active task. The mapping is revoked
@@ -596,9 +656,11 @@ int SchedTaskFree(uint32_t ptr) {
     return -1;
 
   uint32_t size = 0;
+  uint32_t phys = 0;
   for (uint32_t i = 0; i < MAD->array_size; i++) {
     if (MAD->pointers[i] == ptr && MAD->size[i] != 0) {
       size = MAD->size[i];
+      phys = MAD->phys[i];
       break;
     }
   }
@@ -607,7 +669,7 @@ int SchedTaskFree(uint32_t ptr) {
 
   if (PagingUnmapUserRange(ActiveTask->address_space, ptr, size) != 0)
     return -1;
-  KFree((void *)ptr);
+  KFree((void *)phys);
   RemoveTaskMallocAllocation(ActiveTask, ptr);
   return 0;
 }
@@ -691,6 +753,17 @@ void SchedNext() {
       candidate = candidate->next;
     } else {
       candidate = &RootTask;
+    }
+
+    IterateSchedule(_) {
+      if (candidate->states.waitpid_target_pid == current->pid) {
+        if (current->running) {
+          break;
+        } else {
+          candidate->states.waitpid = 0;
+          candidate->states.waitpid_target_pid = 0;
+        }
+      }
     }
 
     if (candidate->running) {

@@ -185,3 +185,84 @@ void printf(const char *format, ...) {
   va_end(args);
   printnt(buffer);
 }
+
+/*
+ * User-space heap allocator. The kernel owns a private, per-task region of
+ * user-virtual memory (see kernel/layout.h USER_HEAP_*). This allocator obtains
+ * page-sized arenas from the kernel via the SYS_KALLOC syscall and carves them
+ * into smaller blocks with a first-fit free list. Freed blocks are recycled
+ * locally; the kernel reclaims the underlying pages when the task exits.
+ */
+extern void *sys_kalloc(uint32_t size);
+extern int sys_kfree(void *ptr);
+
+typedef struct heap_block {
+  struct heap_block *next;
+  uint32_t size; /* usable payload size, excluding this header */
+  uint8_t used;
+} heap_block_t;
+
+#define HEAP_HEADER_SIZE (((sizeof(heap_block_t) + 7) & ~(uintptr_t)7))
+#define HEAP_ALIGN8(x) (((x) + 7U) & ~(uintptr_t)7U)
+
+static heap_block_t *heap_free_list = NULL;
+
+static heap_block_t *heap_grow(uint32_t need) {
+  uint32_t req = need + HEAP_HEADER_SIZE;
+  if (req < 4096U)
+    req = 4096U;
+  req = HEAP_ALIGN8(req);
+
+  uint8_t *mem = (uint8_t *)sys_kalloc(req);
+  if (!mem)
+    return NULL;
+
+  heap_block_t *block = (heap_block_t *)mem;
+  block->size = req - HEAP_HEADER_SIZE;
+  block->used = 0;
+  block->next = heap_free_list;
+  heap_free_list = block;
+  return block;
+}
+
+void *malloc(uint32_t size) {
+  if (size == 0)
+    return NULL;
+
+  uint32_t need = (uint32_t)HEAP_ALIGN8(size + HEAP_HEADER_SIZE);
+
+  for (heap_block_t **pp = &heap_free_list; *pp; pp = &(*pp)->next) {
+    heap_block_t *block = *pp;
+    if (block->size < need)
+      continue;
+
+    /* Split the block if the remainder is large enough to be useful. */
+    if (block->size >= need + HEAP_HEADER_SIZE + 8U) {
+      heap_block_t *remainder = (heap_block_t *)((uint8_t *)block + need);
+      remainder->size = block->size - need;
+      remainder->used = 0;
+      remainder->next = block->next;
+      block->size = need;
+      block->next = remainder;
+    }
+
+    *pp = block->next;
+    block->used = 1;
+    block->next = NULL;
+    return (uint8_t *)block + HEAP_HEADER_SIZE;
+  }
+
+  heap_block_t *block = heap_grow(need);
+  if (!block)
+    return NULL;
+  return malloc(size);
+}
+
+void free(void *ptr) {
+  if (!ptr)
+    return;
+  heap_block_t *block = (heap_block_t *)((uint8_t *)ptr - HEAP_HEADER_SIZE);
+  block->used = 0;
+  block->next = heap_free_list;
+  heap_free_list = block;
+}

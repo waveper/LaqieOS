@@ -5,7 +5,7 @@ LD = ld.lld
 CFLAGS = --target=i486-pc-none-elf  -ffreestanding -fno-pic -fno-builtin -fno-stack-protector -Wall -Wextra -nostdlib
 LDFLAGS = -nostdlib -static -z max-page-size=0x1000 --gc-sections -T link.ld
 
-all: hello.bin example.bin segfault.bin string.o stdlib.o shell.bin illegal.bin ta.bin
+all: hello.bin example.bin segfault.bin string.o stdlib.o shell.bin illegal.bin ta.bin loop.bin
 	$(MAKE) -C lqwm
 
 crt.o: crt.asm
@@ -13,6 +13,9 @@ crt.o: crt.asm
 
 illegal.bin: illegal.asm
 	$(AS) -f bin illegal.asm -o $@
+
+loop.bin: loop.asm
+	$(AS) -f bin loop.asm -o $@
 
 hello.o: hello.c
 	$(CC) $(CFLAGS) -c hello.c -o hello.o
@@ -56,8 +59,8 @@ stdlib.o: stdlib.c stdlib.h
 shell.o: shell.c stdio.h string.h
 	$(CC) $(CFLAGS) -c shell.c -o shell.o
 
-shell.elf: crt.o shell.o string.o link.ld
-	$(LD) $(LDFLAGS) crt.o shell.o string.o -o shell.elf
+shell.elf: crt.o shell.o string.o stdlib.o link.ld
+	$(LD) $(LDFLAGS) crt.o shell.o string.o stdlib.o -o shell.elf
 
 shell.bin: shell.elf
 	llvm-strip shell.elf -o shell.self

@@ -1,0 +1,9 @@
+-- TODO
+	-- Finish file read/write operations
+		but first, migrate filesystems to VFS, which is unfinished too
+	-- Implement ASynchronous I/O
+		-- Implement waitpid syscall so user process (shell) will not manually check if the task was running and yield
+		-- Sleep and Wakeup tasks stuff
+		-- need to rewrite an entire IO drivers to interrupts driven (sob)
+	-- Implememt IPC
+		-- Implement lqwm API so it can render program gui

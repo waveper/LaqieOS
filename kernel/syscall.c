@@ -13,6 +13,7 @@
 #define SYS_EXEC 4
 #define TASK_EXIT 1
 #define SYS_YIELD 15
+#define SYS_PIDALIVE 16
 
 // FRAME BUFFER ACCESS
 #define SYS_REQ_FB 5
@@ -81,6 +82,9 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
     frame->eax = (uint32_t)execute(path);
     return frame;
   }
+  case SYS_PIDALIVE:
+    frame->eax = IsTaskActive(frame->ebx);
+    return frame;
   case SYS_REQ_FB:
     frame->eax = SchedREQFB();
     return frame;

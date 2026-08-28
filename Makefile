@@ -28,13 +28,8 @@ $(IMG): compile_boot $(KERNEL_BIN) compile_user
 	dd if=boot/bootsector.bin of=$(IMG) conv=notrunc bs=512 count=1
 	mcopy -i $(IMG) boot/boot.bin ::/
 	mcopy -i $(IMG) $(KERNEL_BIN) ::/
-	mcopy -i $(IMG) user/hello.bin ::/
+	mcopy -i $(IMG) user/*.bin ::/
 	mcopy -i $(IMG) user/lqwm/lqwm.bin ::/
-	mcopy -i $(IMG) user/example.bin ::/
-	mcopy -i $(IMG) user/segfault.bin ::/
-	mcopy -i $(IMG) user/shell.bin ::/
-	mcopy -i $(IMG) user/illegal.bin ::/
-	mcopy -i $(IMG) user/ta.bin ::/
 
 .PHONY: all clean run run-nogui run-log compile_kernel compile_boot compile_user
 

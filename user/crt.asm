@@ -5,10 +5,11 @@ global prints
 global getchar
 global putchar
 global exec
-global malloc
-global free
+global sys_kalloc
+global sys_kfree
 global mmap
 global yield
+global pidalive
 
 _start:
   jmp pre_main
@@ -63,7 +64,8 @@ putchar:
   pop ebp
   ret
 
-malloc:
+; Raw page-granular allocation syscall used by the user-space heap allocator.
+sys_kalloc:
   push ebp
   mov ebp, esp
   mov eax, 7
@@ -73,7 +75,10 @@ malloc:
   pop ebp
   ret
 
-free:
+; Raw page-granular free syscall. The libc heap keeps freed blocks in a free
+; list for reuse and only relies on the kernel to reclaim everything on exit,
+; but this is provided for completeness.
+sys_kfree:
   push ebp
   mov ebp, esp
   mov eax, 8
@@ -98,4 +103,14 @@ mmap:
 yield:
   mov eax, 15
   int 0x80
+  ret
+
+pidalive:
+  push ebp
+  mov ebp, esp
+  mov eax, 16
+  mov ebx, [ebp+8]
+  int 0x80
+  mov esp, ebp
+  pop ebp
   ret
