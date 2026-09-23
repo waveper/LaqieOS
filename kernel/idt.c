@@ -6,6 +6,7 @@
 #include "driver/ps2/mouse.h"
 #include "panic.h"
 #include "sched/sched.h"
+#include "symbol.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -85,6 +86,7 @@ InterruptFrame *GeneralProtectionFaultHandler(pagefaultstack *regs) {
     TaskKillCurrent();
     return Schedule(frame);
   } else {
+    DumpStackTrace(regs->eip, frame->esp);
     Panic("Kernel General Protection Fault????, idk how???");
   }
 
@@ -117,6 +119,7 @@ InterruptFrame *PageFaultHandler(pagefaultstack *regs) {
     TaskKillCurrent();
     return Schedule(frame);
   } else {
+    DumpStackTrace(regs->eip, frame->esp);
     Panic("Kernel page fault");
   }
 

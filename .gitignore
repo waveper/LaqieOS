@@ -14,3 +14,4 @@ user/lqwm/*.elf
 user/lqwm/*.bin
 .cache
 compile_commands.json
+symbol_dump.txt

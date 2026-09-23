@@ -4,6 +4,7 @@
 #include "../stdlib/stdmem.h"
 #include "../stdlib/string.h"
 #include "driver/floppy/floppy.h"
+#include "driver/pci/pci.h"
 #include "driver/ps2/keyboard.h"
 #include "driver/ps2/mouse.h"
 #include "driver/svga/svga.h"
@@ -12,6 +13,7 @@
 #include "panic.h"
 #include "sched/exec.h"
 #include "sched/sched.h"
+#include "symbol.h"
 
 #define cli() asm("cli");
 #define sti() asm("sti");
@@ -82,6 +84,12 @@ void KMain(uint32_t VIDEO_ADRESS) {
   } else {
     Panic("Floppy Controller Not Detected\r\n");
   }
+
+  if (LoadSymbol() == 0) {
+    SerialPrintf("Loaded Kernel Symbols\r\n");
+  }
+
+  pci_scan_devices();
 
   PicSetIRQMask(0);
 

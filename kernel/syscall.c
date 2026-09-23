@@ -14,6 +14,7 @@
 #define TASK_EXIT 1
 #define SYS_YIELD 15
 #define SYS_PIDALIVE 16
+#define SYS_WAITPID 17
 
 // FRAME BUFFER ACCESS
 #define SYS_REQ_FB 5
@@ -85,6 +86,13 @@ InterruptFrame *SyscallHandler(InterruptFrame *frame) {
   case SYS_PIDALIVE:
     frame->eax = IsTaskActive(frame->ebx);
     return frame;
+  case SYS_WAITPID: {
+    int wait_status = SchedWaitPid(frame->ebx);
+    frame->eax = wait_status < 0 ? (uint32_t)-1 : 0;
+    if (wait_status > 0)
+      return Schedule(frame);
+    return frame;
+  }
   case SYS_REQ_FB:
     frame->eax = SchedREQFB();
     return frame;

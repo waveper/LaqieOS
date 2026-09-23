@@ -30,17 +30,19 @@ $(IMG): compile_boot $(KERNEL_BIN) compile_user
 	mcopy -i $(IMG) $(KERNEL_BIN) ::/
 	mcopy -i $(IMG) user/*.bin ::/
 	mcopy -i $(IMG) user/lqwm/lqwm.bin ::/
+	sh scripts/symdump.sh
+	mcopy -i $(IMG) symbol_dump.txt ::/dump.sym
 
 .PHONY: all clean run run-nogui run-log compile_kernel compile_boot compile_user
 
 run:
-	qemu-system-i386 -m 32M -fda $(IMG) -boot a -vga std -serial mon:stdio
+	qemu-system-i386 -m 32M -drive file=$(IMG),format=raw,if=floppy -boot a -vga std -serial mon:stdio
 
 run-nogui:
-	qemu-system-i386 -m 8M -fda $(IMG) -boot a -vga std -serial mon:stdio -nographic
+	qemu-system-i386 -m 8M -drive file=$(IMG),format=raw,if=floppy -boot a -vga std -serial mon:stdio -nographic
 
 run-log:
-	qemu-system-i386 -m 8M -fda $(IMG) -boot a -vga std -serial file:serial.log -nographic
+	qemu-system-i386 -m 8M -drive file=$(IMG),format=raw,if=floppy -boot a -vga std -serial file:serial.log -nographic
 
 clean:
 	rm -f $(IMG)
@@ -51,5 +53,6 @@ clean:
 	rm -f boot/boot.bin
 	rm -f kernel/driver/apm/apm16.bin
 	rm -f serial.log
+	rm -f symbol_dump.txt
 	$(MAKE) -C user clean
 	$(MAKE) -C stdlib clean

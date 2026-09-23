@@ -35,6 +35,16 @@ typedef struct TaskStates {
   int waitpid_target_pid;
 } TaskStates;
 
+typedef struct IPCMessage {
+  uint8_t data[2048];
+  struct IPCMessage *next;
+} IPCMessage;
+
+typedef struct IPCMailBox {
+  IPCMessage *messages;
+  int MailCount;
+} IPCMailBox;
+
 typedef struct Task {
   uint8_t stack[8192];
   InterruptFrame *frame;
@@ -49,6 +59,7 @@ typedef struct Task {
   struct Task *next;
   bool running;
   TaskStates states;
+  IPCMailBox mail;
   char *name;
   int ring0;
 } Task;
@@ -70,8 +81,9 @@ static int WhichTaskGotAcessToMouse = 0;
  * backing arrays when every slot is occupied. Returns the (possibly new)
  * descriptor, or NULL on allocation failure.
  */
-static MallocAllocationData_t *AppendTaskMallocAllocationData(
-    MallocAllocationData_t *MAD, uint32_t virt, uint32_t phys, uint32_t size) {
+static MallocAllocationData_t *
+AppendTaskMallocAllocationData(MallocAllocationData_t *MAD, uint32_t virt,
+                               uint32_t phys, uint32_t size) {
   if (!MAD) {
     MAD = KAlloc(sizeof(MallocAllocationData_t));
     if (!MAD)
@@ -129,8 +141,7 @@ static MallocAllocationData_t *AppendTaskMallocAllocationData(
   memset(MAD_NEW->pointers, 0, new_size * sizeof(uint32_t));
   memset(MAD_NEW->phys, 0, new_size * sizeof(uint32_t));
   memcpy(MAD_NEW->size, MAD->size, MAD->array_size * sizeof(uint32_t));
-  memcpy(MAD_NEW->pointers, MAD->pointers,
-         MAD->array_size * sizeof(uint32_t));
+  memcpy(MAD_NEW->pointers, MAD->pointers, MAD->array_size * sizeof(uint32_t));
   memcpy(MAD_NEW->phys, MAD->phys, MAD->array_size * sizeof(uint32_t));
 
   MAD_NEW->array_size = new_size;
@@ -176,8 +187,7 @@ static bool TaskOwnsMallocRange(Task *task, uintptr_t addr, uint32_t size) {
   uintptr_t end = (uintptr_t)addr + (uintptr_t)size;
   if (end < (uintptr_t)addr)
     return false;
-  uintptr_t aligned_end =
-      ((end + PAGE_SIZE - 1) & ~(uintptr_t)(PAGE_SIZE - 1));
+  uintptr_t aligned_end = ((end + PAGE_SIZE - 1) & ~(uintptr_t)(PAGE_SIZE - 1));
 
   for (uintptr_t page = start; page < aligned_end; page += PAGE_SIZE) {
     bool covered = false;
@@ -304,8 +314,8 @@ static bool TaskOwnsUserRange(Task *task, uintptr_t addr, uint32_t size) {
   }
 
   return RangeContains((uintptr_t)task->user_stack_allocation,
-                        (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE,
-                        addr, size);
+                       (uintptr_t)task->user_stack_allocation + USER_STACK_SIZE,
+                       addr, size);
 }
 
 static bool IsFixedUserRange(uintptr_t addr, uint32_t size) {
@@ -605,6 +615,50 @@ uint32_t SchedREQMouse(void) {
   return MPSDataPtr;
 }
 
+int SchedWaitPid(int pid) {
+  if (!ActiveTask || pid == ActiveTask->pid)
+    return -1;
+
+  IterateSchedule(_) {
+    if (current && current->pid == pid) {
+      if (!current->running)
+        return 0;
+      ActiveTask->states.waitpid = 1;
+      ActiveTask->states.waitpid_target_pid = pid;
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+int SchedSendMessageIPC(int pid) {
+  IterateSchedule(_) {
+    if (current && current->pid == pid) {
+      // TODO
+      return -1;
+    }
+  }
+  return -1;
+}
+
+static bool IsTaskWaitBlocked(Task *task) {
+  if (!task || !task->states.waitpid)
+    return false;
+
+  IterateSchedule(_) {
+    if (current && current->pid == task->states.waitpid_target_pid) {
+      if (current->running)
+        return true;
+      break;
+    }
+  }
+
+  task->states.waitpid = 0;
+  task->states.waitpid_target_pid = 0;
+  return false;
+}
+
 // Allocates memory for the active (user) task. Fresh physical pages are mapped
 // into the task's address space at a dedicated user virtual address inside the
 // heap region and that virtual address is returned. The backing physical pages
@@ -628,7 +682,7 @@ uint32_t SchedTaskMalloc(uint32_t size) {
   }
 
   if (PagingMapUserPhysicalRange(ActiveTask->address_space, virt, phys, bytes,
-                                  1) != 0) {
+                                 1) != 0) {
     KFree((void *)phys);
     return 0;
   }
@@ -755,16 +809,8 @@ void SchedNext() {
       candidate = &RootTask;
     }
 
-    IterateSchedule(_) {
-      if (candidate->states.waitpid_target_pid == current->pid) {
-        if (current->running) {
-          break;
-        } else {
-          candidate->states.waitpid = 0;
-          candidate->states.waitpid_target_pid = 0;
-        }
-      }
-    }
+    if (IsTaskWaitBlocked(candidate))
+      continue;
 
     if (candidate->running) {
       ActiveTask = candidate;

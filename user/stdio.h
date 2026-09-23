@@ -14,5 +14,6 @@ void free(void *ptr);
 int mmap(uint32_t phys, uint32_t virt, uint32_t size);
 void yield(void);
 bool pidalive(int pid);
+int waitpid(int pid);
 
 #endif

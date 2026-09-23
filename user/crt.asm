@@ -10,6 +10,7 @@ global sys_kfree
 global mmap
 global yield
 global pidalive
+global waitpid
 
 _start:
   jmp pre_main
@@ -109,6 +110,16 @@ pidalive:
   push ebp
   mov ebp, esp
   mov eax, 16
+  mov ebx, [ebp+8]
+  int 0x80
+  mov esp, ebp
+  pop ebp
+  ret
+
+waitpid:
+  push ebp
+  mov ebp, esp
+  mov eax, 17
   mov ebx, [ebp+8]
   int 0x80
   mov esp, ebp

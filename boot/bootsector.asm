@@ -114,7 +114,7 @@ main:
 
     ; Jump to the second stage bootloader that we just loaded into memory
     .jump_to_stage2:
-        jmp STAGE2_ADDR
+        jmp 0x0000:STAGE2_ADDR
 
 halt:
     ; Halt the processor
@@ -418,7 +418,11 @@ fat_read_file_from_fat:
 ; @input es:bx - pointer to the directory entry
 ;
 fat_dir_entry_matches:
-    pusha
+    push ax
+    push bx
+    push cx
+    push di
+    push si
 
     ; Store pointer for later
     mov cx, bx
@@ -446,23 +450,21 @@ fat_dir_entry_matches:
     jmp .match_loop
 
 .matched:
-    ; Set zero flag
-    lahf                      ; Load AH from FLAGS
-    or       ah, 001000000b    ; Set bit for ZF
-    sahf                      ; Store AH back to Flags
-
-    jmp .finished
+    pop si
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    xor ax, ax
+    ret
 
 .not_matched:
-    ; Clear zero flag
-    lahf                      ; Load lower 8 bit from Flags into AH
-    and      ah, 010111111b    ; Clear bit for ZF
-    sahf                      ; Store AH back to Flags
-
-    jmp .finished
-
-.finished:
-    popa
+    pop si
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    or ax, 1
     ret
 
 ;

@@ -80,6 +80,7 @@ int main(void) {
     memset(shellbuffer, 0, sizeof(shellbuffer));
     memset(argv, 0, sizeof(argv));
     memset(execbuffer, 0, sizeof(execbuffer));
+    /*
     while (1) {
       if (pidalive(target_pid)) {
         yield();
@@ -87,6 +88,8 @@ int main(void) {
         break;
       }
     }
+    */
+    waitpid(target_pid);
     printnt("sh: ");
     SerialReadMax(shellbuffer, 64);
     argc = ParseArguments(shellbuffer, argv);
